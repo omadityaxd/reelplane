@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+.turbo/
+
+# env files: only the example is committed
+.env
+.env.*
+!.env.example
+
+# local data and build artefacts
+.data/
+services/worker/bin/
+*.log
+.DS_Store
+.vercel

@@ -1,0 +1,33 @@
+{
+  "name": "reelplane",
+  "private": true,
+  "type": "module",
+  "description": "Open-source Reels SDK + video backend: resumable uploads, a Postgres job queue, a Go transcoding worker and a swipeable feed component.",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck && tsc -p scripts",
+    "test": "pnpm -r --if-present test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down",
+    "infra:init": "tsx scripts/init-storage.ts",
+    "services": "tsx scripts/doctor.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@reelplane/storage": "workspace:*",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

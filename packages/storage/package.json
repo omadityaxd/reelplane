@@ -1,0 +1,19 @@
+{
+  "name": "@reelplane/storage",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One S3-compatible storage interface for Backblaze B2, Cloudflare R2, RustFS/MinIO or AWS S3.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1160.0",
+    "@aws-sdk/s3-request-presigner": "^3.1160.0",
+    "zod": "^4.6.7"
+  }
+}
