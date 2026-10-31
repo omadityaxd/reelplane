@@ -17,11 +17,14 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
-    "infra:init": "tsx scripts/init-storage.ts",
+    "infra:init": "tsx scripts/init-storage.ts && tsx scripts/migrate.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
     "services": "tsx scripts/doctor.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
+    "@reelplane/db": "workspace:*",
     "@reelplane/storage": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.0",

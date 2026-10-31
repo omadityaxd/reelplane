@@ -10,9 +10,11 @@ Postgres job queue, a Go/FFmpeg transcoding worker and a `<ReelFeed />` componen
 ```bash
 pnpm install
 pnpm infra:up      # Postgres 18 + RustFS (S3-compatible) in Docker
-pnpm infra:init    # create the bucket + CORS rules
+pnpm infra:init    # create the bucket + CORS rules, run DB migrations
+pnpm db:seed       # create a local project and print its API keys (shown once)
 pnpm services      # shows which backend each component uses
-pnpm check         # lint + typecheck + tests
+pnpm check         # lint + typecheck + tests (tests need `infra:up`)
+pnpm --filter @reelplane/web dev   # http://localhost:3000/v1/project
 ```
 
 Run the storage contract against the real local S3 server:
