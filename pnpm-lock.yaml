@@ -60,6 +60,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@reelplane/sdk-core':
+        specifier: workspace:*
+        version: link:../../packages/sdk-core
       '@types/react':
         specifier: ^19.2.0
         version: 19.3.0
@@ -76,6 +79,8 @@ importers:
       '@types/pg':
         specifier: ^8.15.0
         version: 8.23.1
+
+  packages/sdk-core: {}
 
   packages/storage:
     dependencies:

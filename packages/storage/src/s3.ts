@@ -89,6 +89,7 @@ export class S3ObjectStorage implements ObjectStorage {
     key: string,
     uploadId: string,
     partNumber: number,
+    contentLength: number,
     expiresInSeconds: number,
   ): Promise<string> {
     return wrap("presignUploadPart", () =>
@@ -99,8 +100,10 @@ export class S3ObjectStorage implements ObjectStorage {
           Key: key,
           UploadId: uploadId,
           PartNumber: partNumber,
+          ContentLength: contentLength,
         }),
-        { expiresIn: expiresInSeconds },
+        // Force content-length into X-Amz-SignedHeaders instead of hoisting it away.
+        { expiresIn: expiresInSeconds, signableHeaders: new Set(["content-length"]) },
       ),
     );
   }
@@ -184,6 +187,24 @@ export class S3ObjectStorage implements ObjectStorage {
       try {
         const result = await this.client.send(
           new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+        );
+        return result.Body ? await result.Body.transformToByteArray() : new Uint8Array();
+      } catch (error) {
+        if (isNotFound(error)) return null;
+        throw error;
+      }
+    });
+  }
+
+  getObjectRange(key: string, start: number, endInclusive: number): Promise<Uint8Array | null> {
+    return wrap("getObjectRange", async () => {
+      try {
+        const result = await this.client.send(
+          new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+            Range: `bytes=${start}-${endInclusive}`,
+          }),
         );
         return result.Body ? await result.Body.transformToByteArray() : new Uint8Array();
       } catch (error) {

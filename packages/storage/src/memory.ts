@@ -42,16 +42,41 @@ export class MemoryObjectStorage implements ObjectStorage {
     key: string,
     uploadId: string,
     partNumber: number,
+    contentLength: number,
     expiresInSeconds: number,
   ): Promise<string> {
     this.requireUpload(key, uploadId, "presignUploadPart");
-    return `${this.baseUrl}/${encodeKeyPath(key)}?uploadId=${uploadId}&partNumber=${partNumber}&expires=${expiresInSeconds}`;
+    const query = new URLSearchParams({
+      uploadId,
+      partNumber: String(partNumber),
+      contentLength: String(contentLength),
+      expires: String(expiresInSeconds),
+    });
+    return `${this.baseUrl}/${encodeKeyPath(key)}?${query}`;
   }
 
   /** Test helper: what the browser's PUT to a presigned part URL would do. */
   receivePart(key: string, uploadId: string, partNumber: number, body: Uint8Array): string {
     this.requireUpload(key, uploadId, "receivePart").parts.set(partNumber, body);
     return etagFor(body);
+  }
+
+  /**
+   * Test helper: performs a PUT against a URL from `presignUploadPart`, enforcing the signed
+   * length like real storage does. Returns the HTTP status and ETag S3 would send back.
+   */
+  handlePresignedPut(url: string, body: Uint8Array): { status: number; etag: string | null } {
+    const parsed = new URL(url);
+    const key = decodeURIComponent(
+      parsed.pathname.slice(new URL(this.baseUrl).pathname.length + 1),
+    );
+    const uploadId = parsed.searchParams.get("uploadId") ?? "";
+    const partNumber = Number(parsed.searchParams.get("partNumber"));
+    if (Number(parsed.searchParams.get("contentLength")) !== body.byteLength) {
+      return { status: 403, etag: null };
+    }
+    if (!this.uploads.has(uploadId)) return { status: 404, etag: null };
+    return { status: 200, etag: this.receivePart(key, uploadId, partNumber, body) };
   }
 
   async listParts(key: string, uploadId: string): Promise<UploadedPart[]> {
@@ -102,6 +127,14 @@ export class MemoryObjectStorage implements ObjectStorage {
 
   async getObject(key: string): Promise<Uint8Array | null> {
     return this.objects.get(key)?.body ?? null;
+  }
+
+  async getObjectRange(
+    key: string,
+    start: number,
+    endInclusive: number,
+  ): Promise<Uint8Array | null> {
+    return this.objects.get(key)?.body.slice(start, endInclusive + 1) ?? null;
   }
 
   async headObject(key: string): Promise<ObjectInfo | null> {

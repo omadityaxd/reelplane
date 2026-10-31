@@ -19,14 +19,10 @@ const { project, publishableKey, secretKey } = await createProject(
 /** A route that echoes the auth context, for both key kinds. */
 const readRoute = apiRoute(
   { allow: ["secret", "publishable"] },
-  async (_req, auth) => json({ data: auth }),
+  async ({ auth }) => json({ data: auth }),
   deps,
 );
-const writeRoute = apiRoute(
-  { allow: ["secret"] },
-  async (_req, auth) => json({ data: auth }),
-  deps,
-);
+const writeRoute = apiRoute({ allow: ["secret"] }, async ({ auth }) => json({ data: auth }), deps);
 
 function request(key?: string, origin?: string): Request {
   const headers = new Headers();
@@ -45,8 +41,14 @@ describe("API key auth middleware", () => {
     const response = await writeRoute(request(secretKey.key));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      data: { projectId: project.id, keyKind: "secret", origin: null },
+      data: { projectId: project.id, credential: "secret", origin: null },
     });
+  });
+
+  it("handles the context Next.js passes to static routes (params undefined)", async () => {
+    // Regression: `next start` passes `{ params: undefined }` on non-dynamic routes.
+    const response = await writeRoute(request(secretKey.key), { params: undefined });
+    expect(response.status).toBe(200);
   });
 
   it("rejects a missing key with 401", async () => {

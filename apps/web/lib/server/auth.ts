@@ -1,22 +1,30 @@
 import {
   type ApiKeyKind,
-  type AuthenticatedKey,
   authenticateApiKey,
+  authenticateUploadToken,
+  hashApiKey,
   type Pool,
 } from "@reelplane/db";
 import { ApiError } from "./errors.ts";
+import { isUploadToken } from "./uploads/token.ts";
+
+/** Which credential authenticated the request. */
+export type Credential = ApiKeyKind | "upload_token";
 
 export interface AuthContext {
   projectId: string;
-  keyId: string;
-  keyKind: ApiKeyKind;
+  credential: Credential;
+  /** API key id; null for upload tokens. */
+  keyId: string | null;
   /** The browser origin, when the request came from an allowed one. */
   origin: string | null;
 }
 
 export interface AuthOptions {
-  /** Which key kinds may call this route. Writes are secret-only. */
-  allow: readonly ApiKeyKind[];
+  /** Which credentials may call this route. Writes are secret-only. */
+  allow: readonly Credential[];
+  /** For upload-token routes: the video the token must belong to. */
+  videoId?: string | undefined;
 }
 
 export interface AuthDeps {
@@ -25,33 +33,43 @@ export interface AuthDeps {
 }
 
 const BEARER = /^Bearer\s+(\S+)$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function extractApiKey(request: Request): string | null {
+export function extractBearer(request: Request): string | null {
   const header = request.headers.get("authorization");
   if (!header) return null;
   return BEARER.exec(header.trim())?.[1] ?? null;
 }
 
 /**
- * Publishable keys are public by design, so the guard against another site embedding them is
- * the Origin header (which browsers set and page scripts cannot forge). Requests without an
- * Origin (server-to-server, curl) are allowed: a publishable key only grants read access to
- * public feed data, which anyone could fetch through an allowed site anyway.
+ * Browser-usable credentials (publishable keys, upload tokens) are only honoured from the
+ * project's allowed origins. Requests without an Origin (server-to-server, curl) are allowed:
+ * the guard exists to stop *other websites* from using the credential in their visitors' browsers.
  */
-function checkOrigin(key: AuthenticatedKey, origin: string | null): void {
-  if (key.kind === "secret") {
-    // A secret key seen from a browser has leaked into client code: refuse loudly.
-    if (origin) {
-      throw new ApiError(
-        "forbidden",
-        "Secret keys must only be used server-side. Use a publishable key in the browser.",
-      );
-    }
-    return;
+function checkBrowserOrigin(allowedOrigins: string[], origin: string | null, what: string): void {
+  if (origin && !allowedOrigins.includes(origin)) {
+    throw new ApiError("forbidden", `Origin ${origin} is not allowed for this ${what}.`);
   }
-  if (origin && !key.allowedOrigins.includes(origin)) {
-    throw new ApiError("forbidden", `Origin ${origin} is not allowed for this publishable key.`);
+}
+
+async function authenticateWithUploadToken(
+  token: string,
+  options: AuthOptions,
+  deps: AuthDeps,
+  origin: string | null,
+): Promise<AuthContext> {
+  if (!options.allow.includes("upload_token") || !options.videoId) {
+    throw new ApiError("forbidden", "Upload tokens can only be used for their own upload.");
   }
+  if (!UUID.test(options.videoId)) throw new ApiError("not_found", "Upload not found.");
+  const match = await authenticateUploadToken(
+    deps.pool,
+    options.videoId,
+    hashApiKey(token, deps.pepper),
+  );
+  if (!match) throw new ApiError("unauthorized", "Invalid or expired upload token.");
+  checkBrowserOrigin(match.allowedOrigins, origin, "upload");
+  return { projectId: match.projectId, credential: "upload_token", keyId: null, origin };
 }
 
 export async function authenticateRequest(
@@ -59,18 +77,29 @@ export async function authenticateRequest(
   options: AuthOptions,
   deps: AuthDeps,
 ): Promise<AuthContext> {
-  const rawKey = extractApiKey(request);
-  if (!rawKey) {
+  const credential = extractBearer(request);
+  if (!credential) {
     throw new ApiError("unauthorized", "Missing API key. Send `Authorization: Bearer <key>`.");
   }
-  const key = await authenticateApiKey(deps.pool, rawKey, deps.pepper);
-  if (!key) {
-    throw new ApiError("unauthorized", "Invalid, revoked or expired API key.");
-  }
   const origin = request.headers.get("origin");
-  checkOrigin(key, origin);
-  if (!options.allow.includes(key.kind)) {
-    throw new ApiError("forbidden", `This endpoint requires a ${options.allow.join(" or ")} key.`);
+  if (isUploadToken(credential)) {
+    return authenticateWithUploadToken(credential, options, deps, origin);
   }
-  return { projectId: key.projectId, keyId: key.keyId, keyKind: key.kind, origin };
+
+  const key = await authenticateApiKey(deps.pool, credential, deps.pepper);
+  if (!key) throw new ApiError("unauthorized", "Invalid, revoked or expired API key.");
+
+  if (key.kind === "secret" && origin) {
+    // A secret key seen from a browser has leaked into client code: refuse loudly.
+    throw new ApiError(
+      "forbidden",
+      "Secret keys must only be used server-side. Use a publishable key in the browser.",
+    );
+  }
+  if (key.kind === "publishable") checkBrowserOrigin(key.allowedOrigins, origin, "publishable key");
+  if (!options.allow.includes(key.kind)) {
+    const allowed = options.allow.filter((kind) => kind !== "upload_token").join(" or ");
+    throw new ApiError("forbidden", `This endpoint requires a ${allowed} key.`);
+  }
+  return { projectId: key.projectId, credential: key.kind, keyId: key.keyId, origin };
 }

@@ -8,26 +8,26 @@ import type { ObjectStorage, UploadedPart } from "./types.ts";
 /** S3 requires every part except the last to be at least 5 MiB. */
 const MIN_PART_SIZE = 5 * 1024 * 1024;
 
-type PartUploader = (
-  storage: ObjectStorage,
-  key: string,
-  uploadId: string,
-  partNumber: number,
+/** How the "browser" PUTs bytes to a presigned URL for a given backend. */
+type PutTransport = (
+  url: string,
   body: Uint8Array,
-) => Promise<string>;
+) => Promise<{ status: number; etag: string | null }>;
 
-/** Real backends: PUT the bytes to the presigned URL, exactly as a browser would. */
-const uploadViaPresignedUrl: PartUploader = async (storage, key, uploadId, partNumber, body) => {
-  const url = await storage.presignUploadPart(key, uploadId, partNumber, 300);
+const httpPut: PutTransport = async (url, body) => {
   const response = await fetch(url, { method: "PUT", body });
-  expect(response.status).toBe(200);
-  const etag = response.headers.get("etag");
-  if (!etag) throw new Error("storage did not expose the part ETag");
-  return etag;
+  return { status: response.status, etag: response.headers.get("etag") };
 };
 
-const uploadToMemory: PartUploader = async (storage, key, uploadId, partNumber, body) =>
-  (storage as MemoryObjectStorage).receivePart(key, uploadId, partNumber, body);
+function presignAndPut(storage: ObjectStorage, put: PutTransport) {
+  return async (key: string, uploadId: string, partNumber: number, body: Uint8Array) => {
+    const url = await storage.presignUploadPart(key, uploadId, partNumber, body.byteLength, 300);
+    const result = await put(url, body);
+    expect(result.status).toBe(200);
+    if (!result.etag) throw new Error("storage did not expose the part ETag");
+    return result.etag;
+  };
+}
 
 function filled(size: number, seed: number): Uint8Array {
   const bytes = new Uint8Array(size);
@@ -35,10 +35,33 @@ function filled(size: number, seed: number): Uint8Array {
   return bytes;
 }
 
-function runContract(name: string, makeStorage: () => ObjectStorage, uploadPart: PartUploader) {
+function runContract<S extends ObjectStorage>(
+  name: string,
+  makeStorage: () => S,
+  makeTransport: (storage: S) => PutTransport,
+) {
   describe(`ObjectStorage contract: ${name}`, () => {
     const storage = makeStorage();
+    const put = makeTransport(storage);
+    const uploadPart = presignAndPut(storage, put);
     const root = `test/${randomUUID()}`;
+
+    it("rejects a part whose size differs from the signed length", async () => {
+      const key = `${root}/oversized.mp4`;
+      const uploadId = await storage.createMultipartUpload(key, "video/mp4");
+      const url = await storage.presignUploadPart(key, uploadId, 1, 1024, 300);
+      const result = await put(url, filled(4096, 3));
+      expect(result.status).toBeGreaterThanOrEqual(400);
+      expect(await storage.listParts(key, uploadId)).toEqual([]);
+      await storage.abortMultipartUpload(key, uploadId);
+    });
+
+    it("reads a byte range", async () => {
+      const key = `${root}/range.bin`;
+      await storage.putObject(key, filled(100, 5));
+      expect(await storage.getObjectRange(key, 10, 13)).toEqual(filled(100, 5).slice(10, 14));
+      expect(await storage.getObjectRange(`${root}/missing`, 0, 3)).toBeNull();
+    });
 
     it("puts, heads, gets and deletes an object", async () => {
       const key = `${root}/hello.txt`;
@@ -61,13 +84,13 @@ function runContract(name: string, makeStorage: () => ObjectStorage, uploadPart:
       const second = filled(1024, 2);
       const uploadId = await storage.createMultipartUpload(key, "video/mp4");
 
-      await uploadPart(storage, key, uploadId, 1, first);
+      await uploadPart(key, uploadId, 1, first);
       // The client "loses its connection" here; on resume it asks storage what arrived.
       const received = await storage.listParts(key, uploadId);
       expect(received.map((part) => part.partNumber)).toEqual([1]);
       expect(received[0]?.size).toBe(MIN_PART_SIZE);
 
-      const etag = await uploadPart(storage, key, uploadId, 2, second);
+      const etag = await uploadPart(key, uploadId, 2, second);
       const parts: UploadedPart[] = [...received, { partNumber: 2, etag, size: second.byteLength }];
       await storage.completeMultipartUpload(key, uploadId, parts);
 
@@ -108,9 +131,17 @@ function runContract(name: string, makeStorage: () => ObjectStorage, uploadPart:
   });
 }
 
-runContract("memory", () => new MemoryObjectStorage(), uploadToMemory);
+runContract(
+  "memory",
+  () => new MemoryObjectStorage(),
+  (memory) => async (url, body) => memory.handlePresignedPut(url, body),
+);
 
 // Runs against the real configured backend (local RustFS by default) with `STORAGE_INTEGRATION=1`.
 if (process.env.STORAGE_INTEGRATION === "1") {
-  runContract(`s3 (${loadStorageConfig().provider})`, () => createStorage(), uploadViaPresignedUrl);
+  runContract(
+    `s3 (${loadStorageConfig().provider})`,
+    () => createStorage(),
+    () => httpPut,
+  );
 }

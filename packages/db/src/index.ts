@@ -10,6 +10,13 @@ export {
   rotateApiKey,
 } from "./api-keys.ts";
 export {
+  claimIdempotencyKey,
+  completeIdempotencyKey,
+  type IdempotencyClaim,
+  type IdempotencyScope,
+  releaseIdempotencyKey,
+} from "./idempotency.ts";
+export {
   type ApiKeyKind,
   displayPrefix,
   generateApiKey,
@@ -33,3 +40,20 @@ export {
   type Project,
 } from "./projects.ts";
 export { type TenantContext, withTenant, withWorker } from "./tenant.ts";
+export {
+  authenticateUploadToken,
+  decodeCursor,
+  encodeCursor,
+  endUpload,
+  getVideo,
+  insertUploadingVideo,
+  type ListVideosInput,
+  listVideos,
+  type NewUploadingVideo,
+  type QueueResult,
+  queueUploadedVideo,
+  type UploadTokenMatch,
+  type Video,
+  type VideoPage,
+  type VideoStatus,
+} from "./videos.ts";

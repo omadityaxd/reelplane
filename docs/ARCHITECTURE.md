@@ -2,6 +2,84 @@
 
 This document grows phase by phase. Each decision lists the trade-off it accepts.
 
+## The upload path (Phase 3)
+
+```mermaid
+sequenceDiagram
+  participant App as Your server
+  participant B as Browser (sdk-core)
+  participant API as Reelplane API
+  participant S as Object storage
+  App->>API: POST /v1/uploads (secret key, Idempotency-Key)
+  API->>S: CreateMultipartUpload
+  API-->>App: videoId + upload token
+  App-->>B: videoId + upload token
+  B->>API: POST /uploads/:id/parts (token)
+  API->>S: ListParts (what is already there?)
+  API-->>B: presigned URLs, each bound to its exact Content-Length
+  B->>S: PUT parts directly (3 in parallel, retried with backoff)
+  B->>API: POST /uploads/:id/complete
+  API->>S: ListParts, CompleteMultipartUpload, read first 64 bytes
+  API->>API: one transaction: video uploading→queued + insert job
+```
+
+### Why direct-to-storage
+
+Video bytes never pass through the API. Vercel functions have request-size and duration limits
+that a 100 MB upload on a slow phone connection would exceed. Proxying uploads would also pay
+for the same bytes twice. The API only signs URLs and keeps the bookkeeping.
+
+### Why an upload token instead of a key in the browser
+
+The developer's server creates the upload with its secret key and passes the browser an
+`rp_ut_…` token. The token can only sign parts for, complete, or abort that one video, it
+expires with the upload session (24 h), and only its hash is stored. A leaked token exposes one
+in-progress upload, never the project.
+
+### Size limits the client cannot lie about
+
+A presigned `PUT` normally accepts any number of bytes, so a client could declare 1 MB and then
+upload 5 GB. Each part URL is therefore signed with its exact `Content-Length`, and storage
+itself rejects a part of any other size. The contract test checks this against the real S3
+server. `complete` re-checks every part's size against storage's own `ListParts`.
+
+### Resume: storage is the source of truth
+
+Parts are 8 MiB. That is above S3's 5 MiB minimum and small enough that a dropped connection
+loses little. On resume the client does not trust its own memory: it asks the API, which asks
+storage via `ListParts`, and uploads only what is missing. This also works after a page reload
+if the app persists `{videoId, token}`.
+
+- **On part failure:** the client stops starting new parts, but lets parts already in flight
+  finish before reporting the error. Real-storage tests showed why: otherwise a quick resume
+  re-sent parts that were still mid-upload in the background.
+- **Retry policy:** network errors, 408, 429 and 5xx are retried with exponential backoff and
+  full jitter. A 403 (expired signature) is re-signed. Any other 4xx fails fast.
+
+### Validation layers
+
+1. **Request:** content type allow-list, size ≤ 100 MB, declared duration ≤ 60 s, strict schema.
+2. **Storage:** the signed `Content-Length` on every part.
+3. **Magic bytes on `complete`:** the file must start with an ISO-BMFF `ftyp` box or an EBML
+   header that matches the declared type. HEIC/AVIF photos and M4A audio also use `ftyp`, so
+   their brands are rejected explicitly; a renamed iPhone photo is refused. A rejected file is
+   deleted and the video moves to `failed` with a reason.
+4. **The worker's `ffprobe` (Phase 4):** the authoritative check for duration and streams.
+
+### Idempotency
+
+- **Create:** `POST /v1/uploads` honours an `Idempotency-Key` header (Stripe semantics). The
+  key is claimed in a committed row before any work starts, so concurrent retries get
+  "in progress" instead of a duplicate. Same key + same body replays the stored response
+  (`Idempotent-Replayed: true`); same key + a different body is a 409. 4xx results are stored;
+  5xx results release the key so a retry can succeed.
+- **Complete:** idempotent by construction. The status flip and the job insert happen in one
+  transaction under `SELECT … FOR UPDATE`. A replay sees `queued` and returns the video. The
+  partial unique index on active jobs is a second guard. If a previous attempt assembled the
+  object but crashed before the database write, the multipart upload is gone; `complete` then
+  confirms the object exists with the declared size and carries on. Tests fire three concurrent
+  completes and assert exactly one job.
+
 ## Data model and tenant isolation (Phase 2)
 
 Schema: [`packages/db/migrations`](../packages/db/migrations). Main tables: `projects`,
