@@ -1,6 +1,11 @@
 "use client";
 
-import { type DebugInfo, type FeedController, measureFps } from "@reelplane/sdk-core";
+import {
+  type DebugInfo,
+  type FeedController,
+  measureFps,
+  measureStalls,
+} from "@reelplane/sdk-core";
 import { useEffect, useState } from "react";
 
 const REFRESH_MS = 500;
@@ -16,12 +21,15 @@ export function DebugOverlay({ controller }: { controller: FeedController }) {
   useEffect(() => {
     let video: HTMLVideoElement | null = null;
     let stopFps: (() => void) | null = null;
+    let stopStalls: (() => void) | null = null;
     const tick = () => {
       const active = controller.activeVideo();
       if (active !== video) {
         stopFps?.();
+        stopStalls?.();
         video = active;
         stopFps = active ? measureFps(active) : null;
+        stopStalls = active ? measureStalls(active) : null;
       }
       setInfo(controller.getDebugInfo());
     };
@@ -30,6 +38,7 @@ export function DebugOverlay({ controller }: { controller: FeedController }) {
     return () => {
       clearInterval(timer);
       stopFps?.();
+      stopStalls?.();
     };
   }, [controller]);
 
@@ -42,7 +51,14 @@ export function DebugOverlay({ controller }: { controller: FeedController }) {
     line("decoded", info.resolution),
     line("bitrate", info.bitrateKbps === null ? null : `${info.bitrateKbps} kbps`),
     line("fps", `${info.presentedFps ?? "–"} shown / ${info.sourceFps ?? "–"} encoded`),
-    line("buffer", `${info.bufferAheadSeconds} s ahead`),
+    line("buffer", `${info.bufferAheadSeconds} s ahead (target ${info.bufferTarget})`),
+    line("stalls", `${info.stalls} (${(info.stallMs / 1000).toFixed(1)} s total)`),
+    line(
+      "segment",
+      info.lastSegmentMs === null
+        ? null
+        : `${info.lastSegmentMs} ms${info.lastSegmentKbps ? ` @ ${info.lastSegmentKbps} kbps` : ""}`,
+    ),
     line("dropped", dropped),
     line("start", info.startQuality),
     line("network", info.estimateMbps === null ? "unknown" : `${info.estimateMbps} Mbps est.`),

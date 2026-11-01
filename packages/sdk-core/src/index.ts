@@ -1,6 +1,6 @@
 export { backoffDelay } from "./backoff.ts";
 export { FeedController, type FeedControllerOptions, type FeedState } from "./controller.ts";
-export { type DebugInfo, measureFps } from "./debug.ts";
+export { type DebugInfo, measureFps, measureStalls } from "./debug.ts";
 export { type EngineKind, PlaybackEngine, prefersNativeHls } from "./engine.ts";
 export {
   FeedClient,

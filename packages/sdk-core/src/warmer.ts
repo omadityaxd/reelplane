@@ -104,6 +104,8 @@ export class Warmer {
       return;
     }
     try {
+      // Never warm with sound: on iOS a second audible element interrupts the active video.
+      video.muted = true;
       if (video.currentTime > MAX_DRIFT_SECONDS) video.currentTime = 0;
       await video.play();
       await nextFrame(video);

@@ -21,6 +21,14 @@ export interface DebugInfo {
   startQuality: StartQuality | null;
   estimateMbps: number | null;
   warming: boolean;
+  /** Stalls on the active video since it became active (`waiting` not caused by a seek). */
+  stalls: number;
+  stallMs: number;
+  /** Download time and throughput of the last media segment (null when not observable). */
+  lastSegmentMs: number | null;
+  lastSegmentKbps: number | null;
+  /** Configured buffer target in seconds ("min–max"), or "browser" for native HLS. */
+  bufferTarget: string;
 }
 
 export interface DebugContext {
@@ -48,12 +56,24 @@ function renditionForHeight(
   return renditions.find((r) => Math.min(r.width, r.height) === short) ?? null;
 }
 
+function segmentStats(engine: PlaybackEngine): {
+  lastSegmentMs: number | null;
+  lastSegmentKbps: number | null;
+} {
+  const sample = engine.lastSegment ?? nativeSegment(engine.currentSrc);
+  if (!sample) return { lastSegmentMs: null, lastSegmentKbps: null };
+  const kbps =
+    sample.bytes > 0 && sample.ms > 0 ? Math.round((sample.bytes * 8) / sample.ms) : null;
+  return { lastSegmentMs: sample.ms, lastSegmentKbps: kbps };
+}
+
 export function readDebugInfo(
   engine: PlaybackEngine,
   item: FeedItem,
   context: DebugContext,
 ): DebugInfo {
   const video = engine.video;
+  const target = engine.bufferTarget();
   const renditions = item.playback.renditions ?? [];
   const level = engine.currentLevel();
   const width = level?.width || video.videoWidth;
@@ -75,6 +95,10 @@ export function readDebugInfo(
     estimateMbps:
       context.estimateBps === null ? null : Number((context.estimateBps / 1e6).toFixed(1)),
     warming: context.warming,
+    stalls: stallMeters.get(video)?.count ?? 0,
+    stallMs: Math.round(stallMeters.get(video)?.totalMs ?? 0),
+    ...segmentStats(engine),
+    bufferTarget: target ? `${target.min}–${target.max} s` : "browser",
   };
 }
 
@@ -125,4 +149,82 @@ export function measureFps(video: HTMLVideoElement): () => void {
     current.stop();
     fpsMeters.delete(video);
   };
+}
+
+/**
+ * Counts stalls on a video: `waiting` events that are not seeks, timed until playback
+ * resumes. Unlike the analytics metric, it counts every stall, however short (debug only).
+ */
+class StallMeter {
+  count = 0;
+  totalMs = 0;
+  private since: number | null = null;
+  private readonly onWaiting = () => {
+    if (this.video.seeking || this.since !== null) return;
+    this.since = performance.now();
+    this.count += 1;
+  };
+  private readonly onResume = () => {
+    if (this.since === null) return;
+    this.totalMs += performance.now() - this.since;
+    this.since = null;
+  };
+
+  constructor(private readonly video: HTMLVideoElement) {
+    video.addEventListener("waiting", this.onWaiting);
+    video.addEventListener("playing", this.onResume);
+  }
+
+  stop(): void {
+    this.video.removeEventListener("waiting", this.onWaiting);
+    this.video.removeEventListener("playing", this.onResume);
+  }
+}
+
+const stallMeters = new WeakMap<HTMLVideoElement, StallMeter>();
+
+/** Starts counting stalls on `video` (from now); returns a stop function. */
+export function measureStalls(video: HTMLVideoElement): () => void {
+  stallMeters.get(video)?.stop();
+  const meter = new StallMeter(video);
+  stallMeters.set(video, meter);
+  return () => {
+    meter.stop();
+    stallMeters.delete(video);
+  };
+}
+
+/**
+ * Native HLS: segment downloads as seen by Resource Timing (duration is exposed even
+ * cross-origin; size only with Timing-Allow-Origin). iOS may not report media-player requests
+ * at all, in which case the overlay shows "–".
+ */
+const nativeSegments: { url: string; ms: number; bytes: number }[] = [];
+let observingSegments = false;
+
+function observeSegments(): void {
+  if (observingSegments) return;
+  observingSegments = true;
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as PerformanceResourceTiming[]) {
+      if (!/\.(m4s|ts)(\?|$)/.test(entry.name)) continue;
+      nativeSegments.push({
+        url: entry.name,
+        ms: Math.round(entry.duration),
+        bytes: entry.transferSize,
+      });
+      if (nativeSegments.length > 50) nativeSegments.shift();
+    }
+  }).observe({ type: "resource", buffered: true });
+}
+
+function nativeSegment(src: string | null): { ms: number; bytes: number } | null {
+  if (!src || typeof PerformanceObserver === "undefined") return null;
+  observeSegments();
+  const base = src.slice(0, src.lastIndexOf("/") + 1);
+  for (let i = nativeSegments.length - 1; i >= 0; i -= 1) {
+    const entry = nativeSegments[i];
+    if (entry?.url.startsWith(base)) return { ms: entry.ms, bytes: entry.bytes };
+  }
+  return null;
 }

@@ -7,6 +7,8 @@ export default defineConfig({
   },
   test: {
     globalSetup: ["./test/global-setup.ts"],
+    // e2e/ holds Playwright specs (pnpm e2e); they need a browser and the running app.
+    exclude: ["e2e/**", "node_modules/**"],
     testTimeout: 15_000,
   },
 });

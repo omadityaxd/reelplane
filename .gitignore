@@ -25,3 +25,7 @@ content/showcase/**/*.mov
 content/showcase/**/*.MOV
 content/showcase/**/*.webm
 content/showcase/**/*.m4v
+
+# Playwright output
+apps/web/test-results/
+apps/web/playwright-report/

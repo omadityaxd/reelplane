@@ -131,7 +131,7 @@ export class FeedController {
       throw new Error(`expected ${this.slotCount} video elements`);
     this.engines = videos.map((video) => {
       // Autoplay rules: muted + inline playback is what lets mobile browsers start without a tap.
-      video.muted = this.state.muted;
+      video.muted = true; // pool elements start muted; the active one follows the setting (applyMute)
       video.playsInline = true;
       video.setAttribute("playsinline", "");
       video.loop = this.options.loop ?? true;
@@ -190,8 +190,8 @@ export class FeedController {
   }
 
   setMuted(muted: boolean): void {
-    for (const engine of this.engines) engine.video.muted = muted;
     this.update({ muted });
+    this.applyMute(this.activeVideo());
   }
 
   destroy(): void {
@@ -318,12 +318,36 @@ export class FeedController {
       emit,
       activatedAt,
     );
+    this.applyMute(video);
     try {
       await video.play();
       this.update({ needsGesture: false });
     } catch (error) {
-      if (error instanceof DOMException && error.name === "NotAllowedError")
-        this.update({ needsGesture: true });
+      if (!(error instanceof DOMException) || error.name !== "NotAllowedError") return;
+      if (!video.muted) {
+        // iOS may refuse audible playback started outside a tap: keep playing, muted.
+        video.muted = true;
+        this.update({ muted: true });
+        try {
+          await video.play();
+          return;
+        } catch {
+          // fall through: even muted playback was refused
+        }
+      }
+      this.update({ needsGesture: true });
+    }
+  }
+
+  /**
+   * Only the active video follows the viewer's sound setting; every other element in the pool
+   * (kept, preloaded, warmed) is always muted. iOS lets one audible media element play at a
+   * time, so a warmed next video that was unmuted interrupted the active one every warm-up
+   * (every 4 s): the "plays ~5 s, then keeps buffering" bug seen on an iPhone.
+   */
+  private applyMute(active: HTMLVideoElement | null): void {
+    for (const engine of this.engines) {
+      engine.video.muted = engine.video === active ? this.state.muted : true;
     }
   }
 

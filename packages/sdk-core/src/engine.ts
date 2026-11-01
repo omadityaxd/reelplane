@@ -95,6 +95,15 @@ export class PlaybackEngine {
     return this.src;
   }
 
+  /** Last media segment hls.js downloaded (debug overlay); native HLS: see debug.ts. */
+  lastSegment: { ms: number; bytes: number } | null = null;
+
+  /** How far ahead the player is configured to buffer; null = browser-managed (native HLS). */
+  bufferTarget(): { min: number; max: number } | null {
+    if (!this.hls) return null;
+    return { min: this.hls.config.maxBufferLength, max: this.hls.config.maxMaxBufferLength };
+  }
+
   /** The rendition hls.js is playing (null for native HLS, which does not expose it). */
   currentLevel(): LevelInfo | null {
     const hls = this.hls;
@@ -171,6 +180,7 @@ export class PlaybackEngine {
     hls.on(HlsClass.Events.FRAG_LOADED, (_event, data) => {
       const stats = data.frag.stats;
       const ms = stats.loading.end - stats.loading.start;
+      this.lastSegment = { ms: Math.round(ms), bytes: stats.loaded };
       if (stats.loaded >= MIN_SAMPLE_BYTES && ms > 0) {
         this.options.bandwidth?.observe((stats.loaded * 8 * 1000) / ms);
       }
@@ -196,6 +206,7 @@ export class PlaybackEngine {
     this.generation += 1;
     this.src = null;
     this.kind = null;
+    this.lastSegment = null;
     if (this.hls) {
       this.hls.destroy();
       this.hls = null;
