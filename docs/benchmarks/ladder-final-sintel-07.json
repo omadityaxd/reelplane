@@ -1,0 +1,26 @@
+{
+  "source": "sintel-07.mp4",
+  "display": "460x818",
+  "frameRate": "24/1",
+  "evaluatedAt": "460x818",
+  "seconds": 10,
+  "preset": "veryfast",
+  "measurements": [
+    {
+      "rung": "240p",
+      "size": "240x426",
+      "targetKbps": 300,
+      "actualKbps": 298,
+      "vmafPhone": 93.39,
+      "ssim": 0.9762
+    },
+    {
+      "rung": "460p",
+      "size": "460x818",
+      "targetKbps": 924,
+      "actualKbps": 860,
+      "vmafPhone": 99.33,
+      "ssim": 0.991
+    }
+  ]
+}

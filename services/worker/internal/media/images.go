@@ -66,7 +66,7 @@ func still(ctx context.Context, ffmpeg, input, output string, at time.Duration, 
 		"-ss", strconv.FormatFloat(at.Seconds(), 'f', 3, 64),
 		"-i", input,
 		"-frames:v", "1",
-		"-vf", fmt.Sprintf("scale=%d:%d%s", w, h, extraFilter),
+		"-vf", stillFilter(probe, w, h, extraFilter),
 		"-q:v", strconv.Itoa(quality),
 		output,
 	}
@@ -80,4 +80,13 @@ func still(ctx context.Context, ffmpeg, input, output string, at time.Duration, 
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// stillFilter scales a still and tone-maps HDR sources like the video renditions.
+func stillFilter(probe Probe, w, h int, extra string) string {
+	scale := fmt.Sprintf("scale=%d:%d%s", w, h, extra)
+	if probe.IsHDR() {
+		return ToneMapFilter + "," + scale
+	}
+	return scale
 }

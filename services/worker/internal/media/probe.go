@@ -35,9 +35,19 @@ type Probe struct {
 	// Display size after applying rotation: what viewers see and what the ladder plans from.
 	Width, Height int
 	FrameRate     float64
-	VariableFPS   bool
-	HasAudio      bool
-	VideoCodec    string
+	// NominalRate is the exact rational rate (r_frame_rate), e.g. "30000/1001" or "60/1".
+	NominalRate string
+	VariableFPS bool
+	HasAudio    bool
+	VideoCodec  string
+	// ColorTransfer is the transfer characteristic, e.g. "bt709", "arib-std-b67" (HLG, iPhone
+	// HDR / Dolby Vision 8.4) or "smpte2084" (PQ / HDR10).
+	ColorTransfer string
+}
+
+// IsHDR reports an HDR transfer function, which needs tone mapping for an SDR H.264 ladder.
+func (p Probe) IsHDR() bool {
+	return p.ColorTransfer == "arib-std-b67" || p.ColorTransfer == "smpte2084"
 }
 
 // IsVertical reports portrait orientation (the 9:16 case Reels are made for).
@@ -45,14 +55,15 @@ func (p Probe) IsVertical() bool { return p.Height > p.Width }
 
 type ffprobeOutput struct {
 	Streams []struct {
-		CodecType    string            `json:"codec_type"`
-		CodecName    string            `json:"codec_name"`
-		Width        int               `json:"width"`
-		Height       int               `json:"height"`
-		RFrameRate   string            `json:"r_frame_rate"`
-		AvgFrameRate string            `json:"avg_frame_rate"`
-		Tags         map[string]string `json:"tags"`
-		Disposition  struct {
+		CodecType     string            `json:"codec_type"`
+		CodecName     string            `json:"codec_name"`
+		Width         int               `json:"width"`
+		Height        int               `json:"height"`
+		RFrameRate    string            `json:"r_frame_rate"`
+		AvgFrameRate  string            `json:"avg_frame_rate"`
+		ColorTransfer string            `json:"color_transfer"`
+		Tags          map[string]string `json:"tags"`
+		Disposition   struct {
 			AttachedPic int `json:"attached_pic"`
 		} `json:"disposition"`
 		SideDataList []struct {
@@ -87,6 +98,8 @@ func ParseProbe(raw []byte) (Probe, error) {
 			p.VideoCodec = s.CodecName
 			p.CodedWidth, p.CodedHeight = s.Width, s.Height
 			p.Rotation = rotationOf(s.Tags, s.SideDataList)
+			p.NominalRate = s.RFrameRate
+			p.ColorTransfer = s.ColorTransfer
 			rFPS, avgFPS := parseRate(s.RFrameRate), parseRate(s.AvgFrameRate)
 			p.FrameRate = avgFPS
 			if p.FrameRate == 0 {

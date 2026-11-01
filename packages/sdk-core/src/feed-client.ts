@@ -1,3 +1,5 @@
+import type { RenditionInfo } from "./network.ts";
+
 /** One video in a feed, as returned by `GET /v1/feeds/:feed`. */
 export interface FeedItem {
   id: string;
@@ -9,7 +11,15 @@ export interface FeedItem {
   likesCount: number;
   metadata: Record<string, unknown>;
   createdAt: string;
-  playback: { hlsUrl: string; posterUrl: string | null; placeholder: string | null };
+  playback: {
+    /** Master playlist starting at 720p (or the best rendition below). */
+    hlsUrl: string;
+    /** Same renditions, starting at the lowest (slow networks, native HLS). */
+    hlsLowStartUrl?: string;
+    posterUrl: string | null;
+    placeholder: string | null;
+    renditions?: RenditionInfo[];
+  };
 }
 
 export type FeedName = "latest" | "trending" | `creator:${string}`;

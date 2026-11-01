@@ -1,0 +1,138 @@
+{
+  "source": "bbb60-01.mp4",
+  "display": "1080x1920",
+  "frameRate": "60/1",
+  "evaluatedAt": "1080x1920",
+  "seconds": 10,
+  "preset": "veryfast",
+  "measurements": [
+    {
+      "rung": "240p",
+      "size": "240x426",
+      "targetKbps": 184,
+      "actualKbps": 199,
+      "vmafPhone": 65.42,
+      "ssim": 0.9741
+    },
+    {
+      "rung": "240p",
+      "size": "240x426",
+      "targetKbps": 315,
+      "actualKbps": 340,
+      "vmafPhone": 75.89,
+      "ssim": 0.9826
+    },
+    {
+      "rung": "240p",
+      "size": "240x426",
+      "targetKbps": 525,
+      "actualKbps": 565,
+      "vmafPhone": 82.25,
+      "ssim": 0.9876
+    },
+    {
+      "rung": "240p",
+      "size": "240x426",
+      "targetKbps": 735,
+      "actualKbps": 788,
+      "vmafPhone": 84.61,
+      "ssim": 0.9897
+    },
+    {
+      "rung": "480p",
+      "size": "480x854",
+      "targetKbps": 630,
+      "actualKbps": 625,
+      "vmafPhone": 88.33,
+      "ssim": 0.9877
+    },
+    {
+      "rung": "480p",
+      "size": "480x854",
+      "targetKbps": 1080,
+      "actualKbps": 1075,
+      "vmafPhone": 94.23,
+      "ssim": 0.9925
+    },
+    {
+      "rung": "480p",
+      "size": "480x854",
+      "targetKbps": 1800,
+      "actualKbps": 1803,
+      "vmafPhone": 97.03,
+      "ssim": 0.9952
+    },
+    {
+      "rung": "480p",
+      "size": "480x854",
+      "targetKbps": 2520,
+      "actualKbps": 2528,
+      "vmafPhone": 98.08,
+      "ssim": 0.9964
+    },
+    {
+      "rung": "720p",
+      "size": "720x1280",
+      "targetKbps": 1575,
+      "actualKbps": 1495,
+      "vmafPhone": 96.36,
+      "ssim": 0.9938
+    },
+    {
+      "rung": "720p",
+      "size": "720x1280",
+      "targetKbps": 2700,
+      "actualKbps": 2588,
+      "vmafPhone": 98.98,
+      "ssim": 0.9964
+    },
+    {
+      "rung": "720p",
+      "size": "720x1280",
+      "targetKbps": 4500,
+      "actualKbps": 4415,
+      "vmafPhone": 99.82,
+      "ssim": 0.9978
+    },
+    {
+      "rung": "720p",
+      "size": "720x1280",
+      "targetKbps": 6300,
+      "actualKbps": 6242,
+      "vmafPhone": 99.96,
+      "ssim": 0.9984
+    },
+    {
+      "rung": "1080p",
+      "size": "1080x1920",
+      "targetKbps": 3045,
+      "actualKbps": 2926,
+      "vmafPhone": 98.99,
+      "ssim": 0.996
+    },
+    {
+      "rung": "1080p",
+      "size": "1080x1920",
+      "targetKbps": 5220,
+      "actualKbps": 5142,
+      "vmafPhone": 99.91,
+      "ssim": 0.998
+    },
+    {
+      "rung": "1080p",
+      "size": "1080x1920",
+      "targetKbps": 8700,
+      "actualKbps": 8731,
+      "vmafPhone": 100,
+      "ssim": 0.999
+    },
+    {
+      "rung": "1080p",
+      "size": "1080x1920",
+      "targetKbps": 12180,
+      "actualKbps": 12252,
+      "vmafPhone": 100,
+      "ssim": 0.9994
+    }
+  ]
+}

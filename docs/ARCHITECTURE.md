@@ -27,10 +27,25 @@ element    paused       playing      1 frame / 4 s       paused, ~whole clip buf
   plays a single muted frame offscreen and pauses, repeated every 4 s, which brought
   swipe-to-play from p50 152 ms to 36 ms. Only N+1 is warmed (the likeliest next swipe), at the
   cost of one tiny decode every few seconds.
-- **Start low, then ramp:** every player starts at the lowest rendition (`startLevel: 0`), so
-  the first segment is small. hls.js ABR moves up once playback runs, and
-  `capLevelToPlayerSize` stops it fetching more pixels than the screen shows. A preloaded
-  player buffers only ~3 s until promoted, then 20 s.
+- **Start sharp, drop only when the network says so.** The first build started every player on
+  240p, and on an iPhone the first seconds looked soft. Now:
+  - The worker writes two master playlists: `master.m3u8` lists **720p (or the best rung up to
+    720p) first**, and `master_low.m3u8` lists the lowest first. Safari / iOS native HLS starts
+    on the first variant listed, so picking the playlist picks the start.
+  - The SDK chooses per item, once, and preloads at that same quality. It starts low only with
+    Data Saver, a slow `effectiveType`, or a _measured_ throughput under 2.5 Mbps (from hls.js
+    fragment load times, shared across videos). `navigator.connection.downlink` alone is not
+    trusted: it is coarse and reported ~1.5 Mbps on a fast desktop link.
+  - iOS Safari exposes no network information, so iPhones start at 720p and Safari's ABR
+    steps down if needed.
+  - hls.js is told the start rendition, seeded with the measured estimate, and ramps up faster
+    (EWMA 2 s / 5 s instead of 3 s / 9 s, up-factor 0.8). `capLevelToPlayerSize` stops it
+    fetching more pixels than the screen shows.
+- **Preloads are capped:** ~4 s (`maxMaxBufferLength`) until promoted, then 20–60 s. hls.js
+  otherwise keeps buffering up to 60 MB, so preloads were downloading whole clips.
+- **Debug overlay:** `<ReelFeed debug />` (the demo's `?debug=1`) shows the engine, rendition,
+  decoded size, bitrate, encoded vs presented fps, buffer ahead, dropped frames, start
+  decision, bandwidth estimate and warming state.
 - **Native HLS on Apple, hls.js elsewhere.** All iOS browsers are WebKit and play HLS natively,
   so hls.js (imported lazily) is never downloaded there.
 
@@ -175,12 +190,21 @@ reported **0**.
   store portrait video as rotated landscape (e.g. 1920x1080 at −90°), so the ladder is planned
   from the _display_ size, and FFmpeg's autorotate feeds upright frames to the scaler. A test
   feeds a 90°-rotated clip and checks the renditions come out portrait.
-- **Ladder by short side** (works for 9:16 and 16:9): 240p 400 kbps, 480p 1 Mbps, 720p
-  2.5 Mbps, 1080p 4.5 Mbps (only when the source is that big), capped VBR at +10%. It never
-  upscales; a source smaller than 240p gets one rendition at its own size.
-- **H.264 + AAC** for maximum compatibility: Main profile on the small rungs, High above.
-- **≤30 fps constant rate:** variable-frame-rate phone clips are converted to CFR, and 60 fps is
-  halved. That halves encode cost for no visible gain at these sizes.
+- **Ladder by short side** (works for 9:16 and 16:9): 240p 300 kbps, 480p 1 Mbps, 720p 2.5 Mbps,
+  1080p 4.5 Mbps whenever the source is at least that big, ×1.5 above 30 fps. Capped VBR at +10%.
+  Chosen from a VMAF (phone model) sweep; see [BENCHMARKS.md](BENCHMARKS.md#ladder-quality).
+  - **Never upscale, but don't strand mid-size sources:** a source more than 20% above its
+    highest standard rung gets a native-resolution top rung (a 460x818 crop got only 240p before
+    this rule).
+  - A source smaller than 240p gets one rendition at its own size.
+- **H.264 + AAC** for maximum compatibility: Main profile on the small rungs, High above. Output
+  is tagged BT.709.
+- **The source frame rate is preserved** (24/25/30/50/60, exact rational rates such as
+  30000/1001), constant rate. Variable-rate phone clips snap to the nearest standard rate. Only
+  high-speed captures above 60 fps are reduced to 60.
+- **HDR → SDR:** iPhones record HLG HDR (Dolby Vision 8.4) by default. Without tone mapping,
+  8-bit H.264 renditions of it look grey and washed out, so HLG/PQ sources go through
+  `zscale` + `tonemap=hable` to BT.709. Stills get the same treatment.
 - **One FFmpeg pass:** decode once, `split` into every rung, write CMAF/fMP4 HLS. A keyframe is
   forced exactly every 2 s (`-force_key_frames`, `-sc_threshold 0`), so segments line up across
   renditions for ABR switching.

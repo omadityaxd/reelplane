@@ -1,7 +1,15 @@
+import { type DebugInfo, readDebugInfo } from "./debug.ts";
 import { PlaybackEngine } from "./engine.ts";
 import { FeedClient, type FeedItem, type FeedName } from "./feed-client.ts";
 import { MetricsQueue, newSessionId, type PlaybackMetric, ViewTracker } from "./metrics.ts";
-import { Warmer } from "./warmer.ts";
+import {
+  BandwidthEstimator,
+  chooseStartQuality,
+  pickStartRendition,
+  readNetworkHints,
+  type StartQuality,
+} from "./network.ts";
+import { Warmer, warmingAllowed } from "./warmer.ts";
 import { assignSlots, DEFAULT_WINDOW, planWindow, poolSize, type WindowOptions } from "./window.ts";
 
 export interface FeedControllerOptions {
@@ -21,6 +29,8 @@ export interface FeedControllerOptions {
   onMetric?: (metric: PlaybackMetric) => void;
   /** Rewrites media URLs (benchmarks use it to defeat the HTTP cache). */
   urlTransform?: (url: string) => string;
+  /** Keep the next video's player warm (default true; adaptive, see warmer.ts). */
+  warm?: boolean;
   fetch?: typeof fetch;
 }
 
@@ -40,6 +50,13 @@ export interface FeedState {
 
 type Listener = (state: FeedState) => void;
 
+/** How one item is loaded: decided once, so preloading and playing use the same source. */
+interface ItemSource {
+  url: string;
+  startHeight: number | undefined;
+  quality: StartQuality;
+}
+
 /** Load the next page when the viewer gets within this many items of the end. */
 const PREFETCH_THRESHOLD = 3;
 /** A promoted video further in than this restarts from 0 (swiping back to a watched one). */
@@ -57,7 +74,12 @@ export class FeedController {
   private readonly sessionId = newSessionId();
   private engines: PlaybackEngine[] = [];
   private tracker: ViewTracker | null = null;
-  private readonly warmer = new Warmer();
+  private readonly bandwidth = new BandwidthEstimator();
+  // Lazily evaluated, so `this.options` is set by the time the policy is first consulted.
+  private readonly warmer = new Warmer(
+    () => this.options.warm !== false && warmingAllowed(this.bandwidth.estimate()),
+  );
+  private readonly sources = new Map<string, ItemSource>();
   private listeners = new Set<Listener>();
   private hiddenPause = false;
   private destroyed = false;
@@ -116,6 +138,7 @@ export class FeedController {
       video.disableRemotePlayback = true;
       const engine: PlaybackEngine = new PlaybackEngine(video, {
         ...(this.options.urlTransform ? { urlTransform: this.options.urlTransform } : {}),
+        bandwidth: this.bandwidth,
         onQualitySwitch: (level) => {
           if (this.isActiveEngine(engine)) this.tracker?.qualitySwitch(level.height, level.bitrate);
         },
@@ -187,7 +210,8 @@ export class FeedController {
     return slot >= 0 && this.engines[slot] === engine;
   }
 
-  private activeVideo(): HTMLVideoElement | null {
+  /** The <video> element of the active item (debug tools, custom overlays). */
+  activeVideo(): HTMLVideoElement | null {
     const slot = this.state.slots.indexOf(this.state.activeIndex);
     return slot >= 0 ? (this.engines[slot]?.video ?? null) : null;
   }
@@ -210,15 +234,17 @@ export class FeedController {
         if (engine.currentSrc) engine.unload();
         return;
       }
+      const source = this.sourceFor(item);
       if (plan.roles.get(index ?? -1) !== "play") {
         // Pausing first matters: the warmer may be playing this element (now N-1 or N+2).
         engine.video.pause();
-        void engine.load(item.playback.hlsUrl, "preload");
+        // Preload at the same starting quality the video will play at.
+        void engine.load(source.url, "preload", { startHeight: source.startHeight });
         return;
       }
       if (activatedAt === null) return; // already playing
-      const preloaded = engine.currentSrc === item.playback.hlsUrl;
-      void this.play(engine, item, preloaded, activatedAt, trigger);
+      const preloaded = engine.currentSrc === source.url;
+      void this.play(engine, item, source, preloaded, activatedAt, trigger);
     });
     // Warm the likeliest next video (N+1); see warmer.ts.
     const nextSlot = slots.indexOf(activeIndex + 1);
@@ -227,9 +253,45 @@ export class FeedController {
     );
   }
 
+  /**
+   * Picks an item's master playlist and start rendition from the network picture at the time
+   * it first enters the window, and keeps that choice: changing it later would reload a
+   * preloaded video. Native HLS starts on the playlist's first variant, so a slow network gets
+   * the low-start playlist; hls.js is told the start rendition directly.
+   */
+  private sourceFor(item: FeedItem): ItemSource {
+    const known = this.sources.get(item.id);
+    if (known) return known;
+    const hints = readNetworkHints();
+    const estimate = this.bandwidth.estimate();
+    const quality = chooseStartQuality(estimate, hints);
+    const start = pickStartRendition(item.playback.renditions ?? [], quality, estimate);
+    const url =
+      quality === "low" && item.playback.hlsLowStartUrl
+        ? item.playback.hlsLowStartUrl
+        : item.playback.hlsUrl;
+    const source: ItemSource = { url, startHeight: start?.height, quality };
+    this.sources.set(item.id, source);
+    return source;
+  }
+
+  /** Live playback details of the active video, for the `?debug=1` overlay. */
+  getDebugInfo(): DebugInfo | null {
+    const slot = this.state.slots.indexOf(this.state.activeIndex);
+    const engine = slot >= 0 ? this.engines[slot] : undefined;
+    const item = this.state.items[this.state.activeIndex];
+    if (!engine || !item) return null;
+    return readDebugInfo(engine, item, {
+      startQuality: this.sources.get(item.id)?.quality ?? null,
+      estimateBps: this.bandwidth.estimate(),
+      warming: this.warmer.isActive(),
+    });
+  }
+
   private async play(
     engine: PlaybackEngine,
     item: FeedItem,
+    source: ItemSource,
     preloaded: boolean,
     activatedAt: number,
     trigger: "initial" | "swipe",
@@ -238,7 +300,7 @@ export class FeedController {
     // A kept video (swiping back) restarts from the top. A warmed or freshly preloaded video is
     // within a frame or two of the start, and a seek there would cost more than it fixes.
     if (preloaded && video.currentTime > RESTART_THRESHOLD_SECONDS) video.currentTime = 0;
-    await engine.load(item.playback.hlsUrl, "play");
+    await engine.load(source.url, "play", { startHeight: source.startHeight });
     if (this.destroyed || this.state.items[this.state.activeIndex]?.id !== item.id) return;
     const emit = (metric: PlaybackMetric) => {
       this.metrics?.push(metric);

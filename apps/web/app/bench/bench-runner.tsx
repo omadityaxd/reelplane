@@ -83,6 +83,7 @@ function readConfig() {
   const params = new URLSearchParams(window.location.search);
   return {
     preload: params.get("preload") !== "0",
+    warm: params.get("warm") !== "0",
     swipes: Math.max(1, Number(params.get("swipes") ?? 25)),
     dwell: Math.max(0, Number(params.get("dwell") ?? 2000)),
     nonce: params.get("run") ?? Math.random().toString(36).slice(2),
@@ -176,9 +177,10 @@ function Bench({
   const controllerOptions = useMemo(
     () => ({
       sendMetrics: false, // keep benchmark traffic out of the project's analytics
+      warm: config.warm,
       urlTransform: (url: string) => `${url}${url.includes("?") ? "&" : "?"}bench=${config.nonce}`,
     }),
-    [config.nonce],
+    [config.nonce, config.warm],
   );
 
   return (
@@ -193,6 +195,7 @@ function Bench({
         onActiveChange={(_item, index) => {
           activeIndex.current = index;
         }}
+        debug={new URLSearchParams(window.location.search).get("debug") === "1"}
         aria-label="Benchmark feed"
       />
       <output

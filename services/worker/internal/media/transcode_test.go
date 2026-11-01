@@ -54,13 +54,18 @@ func transcodeClip(t *testing.T, clip Clip) (Probe, string, Images) {
 		t.Fatal(err)
 	}
 	var last float64
-	plan := EncodePlan{Input: src, OutDir: out, Rungs: PlanLadder(probe.Width, probe.Height),
-		FPS: TargetFPS(probe.FrameRate), HasAudio: probe.HasAudio, Preset: "ultrafast"}
+	rate := OutputRate(probe)
+	rungs := PlanLadder(probe.Width, probe.Height, rate.FPS)
+	plan := EncodePlan{Input: src, OutDir: out, Rungs: rungs, Rate: rate, HDR: probe.IsHDR(),
+		HasAudio: probe.HasAudio, Preset: "ultrafast"}
 	if err := Transcode(ctx, "ffmpeg", plan, probe.Duration, func(p float64) { last = p }); err != nil {
 		t.Fatal(err)
 	}
 	if last < 0.9 {
 		t.Errorf("progress ended at %.2f", last)
+	}
+	if _, err := WriteMasters(out, rungs, rate); err != nil {
+		t.Fatal(err)
 	}
 	images, err := GenerateImages(ctx, "ffmpeg", src, out, probe)
 	if err != nil {
@@ -157,7 +162,7 @@ func TestCancellingTheContextStopsFFmpeg(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	plan := EncodePlan{Input: src, OutDir: dir, Rungs: PlanLadder(1080, 1920), FPS: 30, HasAudio: true, Preset: "medium"}
+	plan := EncodePlan{Input: src, OutDir: dir, Rungs: PlanLadder(1080, 1920, 30), Rate: Rate{"30/1", 30}, HasAudio: true, Preset: "medium"}
 	started := time.Now()
 	go func() { time.Sleep(500 * time.Millisecond); cancel() }()
 	err := Transcode(ctx, "ffmpeg", plan, 20*time.Second, nil)
@@ -166,5 +171,70 @@ func TestCancellingTheContextStopsFFmpeg(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 10*time.Second {
 		t.Errorf("cancellation took %s", elapsed)
+	}
+}
+
+func probeField(t *testing.T, path, entries string) string {
+	t.Helper()
+	out, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", entries, "-of", "default=nw=1:nk=1", path).Output()
+	if err != nil {
+		t.Fatalf("ffprobe %s: %v", path, err)
+	}
+	first, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return strings.TrimSpace(first)
+}
+
+func firstVariant(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	variants, err := ParseMaster(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return variants[0].Name
+}
+
+func TestSixtyFpsStaysSixtyAt720pAnd1080p(t *testing.T) {
+	requireFFmpeg(t)
+	probe, out, _ := transcodeClip(t, Clip{Width: 1080, Height: 1920, Duration: 3 * time.Second, FPS: 60, Audio: true})
+	if rate := OutputRate(probe); rate.FPS != 60 {
+		t.Fatalf("output rate = %s", rate.Expr)
+	}
+	for _, rung := range []string{"240p", "480p", "720p", "1080p"} {
+		if fps := probeField(t, filepath.Join(out, rung, "index.m3u8"), "stream=r_frame_rate"); fps != "60/1" {
+			t.Errorf("%s rendition is %s fps, want 60/1", rung, fps)
+		}
+	}
+	master, _ := os.ReadFile(filepath.Join(out, MasterPlaylist))
+	if !strings.Contains(string(master), "FRAME-RATE=60.000") || !strings.Contains(string(master), "RESOLUTION=1080x1920") {
+		t.Errorf("master:\n%s", master)
+	}
+	if got := firstVariant(t, filepath.Join(out, MasterPlaylist)); got != "720p" {
+		t.Errorf("master starts on %s, want 720p", got)
+	}
+	if got := firstVariant(t, filepath.Join(out, LowStartPlaylist)); got != "240p" {
+		t.Errorf("low-start master starts on %s, want 240p", got)
+	}
+}
+
+func TestHDRSourceIsToneMappedToSDR(t *testing.T) {
+	requireFFmpeg(t)
+	probe, out, images := transcodeClip(t, Clip{Width: 720, Height: 1280, Duration: 3 * time.Second, FPS: 30, HLG: true})
+	if !probe.IsHDR() || probe.ColorTransfer != "arib-std-b67" {
+		t.Fatalf("probe should see HLG: %+v", probe)
+	}
+	rendition := filepath.Join(out, "720p", "index.m3u8")
+	if trc := probeField(t, rendition, "stream=color_transfer"); trc != "bt709" {
+		t.Errorf("rendition transfer = %q, want bt709", trc)
+	}
+	if pix := probeField(t, rendition, "stream=pix_fmt"); pix != "yuv420p" {
+		t.Errorf("rendition pix_fmt = %q, want 8-bit yuv420p", pix)
+	}
+	if images.Placeholder == "" {
+		t.Error("stills must still be generated for HDR sources")
 	}
 }

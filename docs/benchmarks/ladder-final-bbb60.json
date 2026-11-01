@@ -1,0 +1,42 @@
+{
+  "source": "bbb60-01.mp4",
+  "display": "1080x1920",
+  "frameRate": "60/1",
+  "evaluatedAt": "1080x1920",
+  "seconds": 10,
+  "preset": "veryfast",
+  "measurements": [
+    {
+      "rung": "240p",
+      "size": "240x426",
+      "targetKbps": 450,
+      "actualKbps": 484,
+      "vmafPhone": 80.7,
+      "ssim": 0.9863
+    },
+    {
+      "rung": "480p",
+      "size": "480x854",
+      "targetKbps": 1500,
+      "actualKbps": 1497,
+      "vmafPhone": 96.13,
+      "ssim": 0.9944
+    },
+    {
+      "rung": "720p",
+      "size": "720x1280",
+      "targetKbps": 3750,
+      "actualKbps": 3641,
+      "vmafPhone": 99.66,
+      "ssim": 0.9974
+    },
+    {
+      "rung": "1080p",
+      "size": "1080x1920",
+      "targetKbps": 6750,
+      "actualKbps": 6697,
+      "vmafPhone": 99.99,
+      "ssim": 0.9986
+    }
+  ]
+}

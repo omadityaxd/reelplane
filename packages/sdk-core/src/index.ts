@@ -1,5 +1,6 @@
 export { backoffDelay } from "./backoff.ts";
 export { FeedController, type FeedControllerOptions, type FeedState } from "./controller.ts";
+export { type DebugInfo, measureFps } from "./debug.ts";
 export { type EngineKind, PlaybackEngine, prefersNativeHls } from "./engine.ts";
 export {
   FeedClient,
@@ -18,6 +19,15 @@ export {
   ViewTracker,
 } from "./metrics.ts";
 export {
+  BandwidthEstimator,
+  chooseStartQuality,
+  type NetworkHints,
+  pickStartRendition,
+  type RenditionInfo,
+  readNetworkHints,
+  type StartQuality,
+} from "./network.ts";
+export {
   fetchTransport,
   type PartPutResult,
   type PartTransport,
@@ -32,6 +42,7 @@ export {
   type UploadVideoOptions,
   uploadVideo,
 } from "./upload.ts";
+export { Warmer, warmingAllowed } from "./warmer.ts";
 export {
   assignSlots,
   DEFAULT_WINDOW,

@@ -21,6 +21,7 @@ export {
 export {
   type FeedInput,
   type FeedPage,
+  type FeedRendition,
   type FeedSpec,
   type FeedVideo,
   getFeed,

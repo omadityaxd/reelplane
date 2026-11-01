@@ -43,6 +43,7 @@ type Rendition struct {
 	Width       int
 	Height      int
 	BitrateKbps int
+	FPS         float64
 	Codecs      string
 	PlaylistKey string
 }
@@ -329,9 +330,9 @@ func replaceRenditions(ctx context.Context, tx pgx.Tx, job *Job, renditions []Re
 	for _, r := range renditions {
 		if _, err := tx.Exec(ctx, `
 			insert into reelplane.renditions
-			  (video_id, project_id, name, width, height, bitrate_kbps, codecs, playlist_key)
-			values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			job.VideoID, job.ProjectID, r.Name, r.Width, r.Height, r.BitrateKbps, r.Codecs, r.PlaylistKey,
+			  (video_id, project_id, name, width, height, bitrate_kbps, fps, codecs, playlist_key)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			job.VideoID, job.ProjectID, r.Name, r.Width, r.Height, r.BitrateKbps, nullableFPS(r.FPS), r.Codecs, r.PlaylistKey,
 		); err != nil {
 			return fmt.Errorf("insert rendition %s: %w", r.Name, err)
 		}
@@ -546,4 +547,12 @@ func (q *Queue) SweepGarbage(ctx context.Context, remove func(context.Context, s
 		return nil
 	})
 	return swept, err
+}
+
+// nullableFPS stores an unknown (zero) frame rate as NULL rather than violating the check.
+func nullableFPS(fps float64) any {
+	if fps <= 0 {
+		return nil
+	}
+	return fps
 }

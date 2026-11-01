@@ -117,6 +117,20 @@ export const STYLES = `
 }
 .rp-tap { position: absolute; inset: 0; z-index: 1; background: transparent; border: 0; cursor: pointer; }
 .rp-empty { display: grid; place-items: center; height: 100%; padding: 24px; text-align: center; color: #d4d4d8; }
+.rp-debug {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 8px;
+  z-index: 3;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.7);
+  color: #d4f5d4;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: none;
+  white-space: pre;
+}
 .rp-sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;

@@ -64,9 +64,10 @@ func (p *Pipeline) Run(ctx context.Context, job *queue.Job, progress func(int)) 
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return queue.Result{}, err
 	}
-	rungs := media.PlanLadder(probe.Width, probe.Height)
+	rate := media.OutputRate(probe)
+	rungs := media.PlanLadder(probe.Width, probe.Height, rate.FPS)
 	plan := media.EncodePlan{
-		Input: source, OutDir: out, Rungs: rungs, FPS: media.TargetFPS(probe.FrameRate),
+		Input: source, OutDir: out, Rungs: rungs, Rate: rate, HDR: probe.IsHDR(),
 		HasAudio: probe.HasAudio, Preset: p.Preset,
 	}
 	encodeStart := now()
@@ -76,6 +77,10 @@ func (p *Pipeline) Run(ctx context.Context, job *queue.Job, progress func(int)) 
 		return queue.Result{}, err
 	}
 	encodeTime := now().Sub(encodeStart)
+	variants, err := media.WriteMasters(out, rungs, rate)
+	if err != nil {
+		return queue.Result{}, err
+	}
 
 	images, err := media.GenerateImages(ctx, p.FFmpeg, source, out, probe)
 	if err != nil {
@@ -88,20 +93,29 @@ func (p *Pipeline) Run(ctx context.Context, job *queue.Job, progress func(int)) 
 		return queue.Result{}, fmt.Errorf("upload outputs: %w", err)
 	}
 	progress(99)
-	return buildResult(prefix, probe, rungs, images, plan, encodeTime, now().Sub(started)), nil
+	return buildResult(prefix, probe, rungs, variants, images, plan, encodeTime, now().Sub(started)), nil
 }
 
-func buildResult(prefix string, probe media.Probe, rungs []media.Rung, images media.Images, plan media.EncodePlan, encode, total time.Duration) queue.Result {
+func buildResult(prefix string, probe media.Probe, rungs []media.Rung, variants []media.Variant, images media.Images, plan media.EncodePlan, encode, total time.Duration) queue.Result {
+	measured := make(map[string]media.Variant, len(variants))
+	for _, v := range variants {
+		measured[v.Name] = v
+	}
 	renditions := make([]queue.Rendition, len(rungs))
 	for i, rung := range rungs {
-		codecs, bitrate := "avc1", rung.VideoKbps
-		if plan.HasAudio {
-			codecs += ",mp4a.40.2"
-			bitrate += rung.AudioKbps
+		// Prefer what FFmpeg measured (real average bitrate, exact codec string) over targets.
+		bitrate, codecs := rung.VideoKbps+rung.AudioKbps, "avc1"
+		if v, ok := measured[rung.Name]; ok {
+			if v.AverageBandwidth > 0 {
+				bitrate = v.AverageBandwidth / 1000
+			}
+			if v.Codecs != "" {
+				codecs = v.Codecs
+			}
 		}
 		renditions[i] = queue.Rendition{
 			Name: rung.Name, Width: rung.Width, Height: rung.Height, BitrateKbps: bitrate,
-			Codecs: codecs, PlaylistKey: prefix + "/" + rung.Name + "/index.m3u8",
+			FPS: plan.Rate.FPS, Codecs: codecs, PlaylistKey: prefix + "/" + rung.Name + "/index.m3u8",
 		}
 	}
 	thumbs := make([]string, len(images.Thumbnails))
@@ -126,6 +140,8 @@ func buildResult(prefix string, probe media.Probe, rungs []media.Rung, images me
 			"renditions":    len(rungs),
 			"preset":        plan.Preset,
 			"source":        fmt.Sprintf("%dx%d@%.2ffps", probe.Width, probe.Height, probe.FrameRate),
+			"outputFps":     plan.Rate.Expr,
+			"hdrToneMapped": plan.HDR,
 		},
 	}
 }

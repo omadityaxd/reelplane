@@ -60,19 +60,32 @@ interface ManifestEntry {
   changes?: string;
 }
 
+/** Virtual adapters (Docker/WSL/Hyper-V/VMs) have private addresses a phone cannot reach. */
+const VIRTUAL_ADAPTER = /vEthernet|WSL|Docker|Hyper-V|VirtualBox|VMware|Loopback|br-|veth/i;
+
+/** Home Wi-Fi is almost always 192.168.x; 172.16–31.x is typically a virtual network. */
+function lanRank(ip: string): number {
+  if (ip.startsWith("192.168.")) return 0;
+  if (ip.startsWith("10.")) return 1;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return 2;
+  return Number.POSITIVE_INFINITY;
+}
+
 function lanAddress(): string | null {
-  for (const addresses of Object.values(networkInterfaces())) {
+  const candidates: string[] = [];
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    if (VIRTUAL_ADAPTER.test(name)) continue;
     for (const address of addresses ?? []) {
       if (
         address.family === "IPv4" &&
         !address.internal &&
-        /^(192\.168|10\.|172\.(1[6-9]|2\d|3[01]))/.test(address.address)
+        Number.isFinite(lanRank(address.address))
       ) {
-        return address.address;
+        candidates.push(address.address);
       }
     }
   }
-  return null;
+  return candidates.sort((a, b) => lanRank(a) - lanRank(b))[0] ?? null;
 }
 
 function readEnvFile(path: string): Map<string, string> {
@@ -144,10 +157,9 @@ async function demoProject(
     env.set(KEY_VAR, created.publishableKey.key);
     return created.project.id;
   }
-  await setAllowedOrigins(deps.pool, DEV_OWNER_ID, existing.id, [
-    ...existing.allowedOrigins,
-    ...origins,
-  ]);
+  // These dev projects belong to the seed: replace (not extend) their origins, so a stale
+  // address from an earlier run (e.g. a virtual adapter) does not linger.
+  await setAllowedOrigins(deps.pool, DEV_OWNER_ID, existing.id, origins);
   if (!env.get(KEY_VAR)) {
     const key = await createApiKey(
       deps.pool,
@@ -209,6 +221,37 @@ async function upload(
     client.query("update reelplane.videos set is_showcase = true where id = $1", [videoId]),
   );
   return videoId;
+}
+
+async function uploadAll(
+  deps: AppDeps,
+  projectId: string,
+  entries: ManifestEntry[],
+): Promise<void> {
+  const copies = BENCH ? BENCH_COPIES : 1;
+  for (const entry of entries) {
+    const path = join(SHOWCASE, entry.file);
+    if (!existsSync(path)) {
+      process.stdout.write(`skip ${entry.file}: file missing (run pnpm showcase:clips?)\n`);
+      continue;
+    }
+    if (
+      durationSeconds(path) > MAX_DURATION_S + 0.5 ||
+      statSync(path).size > DEFAULT_UPLOAD_LIMITS.maxBytes
+    ) {
+      process.stdout.write(`skip ${entry.file}: over the 60 s / 100 MB demo limits\n`);
+      continue;
+    }
+    for (let copy = 1; copy <= copies; copy += 1) {
+      const fileId = BENCH ? `${entry.file}#${copy}` : entry.file;
+      if (await alreadyUploaded(deps, projectId, fileId)) {
+        process.stdout.write(`skip ${fileId}: already uploaded\n`);
+        continue;
+      }
+      const videoId = await upload(deps, projectId, entry, path, fileId);
+      process.stdout.write(`upload ${fileId} (${entry.license}) → ${videoId}\n`);
+    }
+  }
 }
 
 async function waitForWorker(deps: AppDeps, projectId: string): Promise<void> {
@@ -279,31 +322,16 @@ try {
   const projectId = await demoProject(deps, origins, env);
   writeEnvFile(WEB_ENV, env);
   process.stdout.write(`demo project ${projectId}; allowed origins: ${origins.join(", ")}\n`);
-  const copies = BENCH ? BENCH_COPIES : 1;
-  for (const entry of loadManifest()) {
-    const path = join(SHOWCASE, entry.file);
-    if (!existsSync(path)) {
-      process.stdout.write(`skip ${entry.file}: file missing (run pnpm showcase:clips?)\n`);
-      continue;
-    }
-    if (
-      durationSeconds(path) > MAX_DURATION_S + 0.5 ||
-      statSync(path).size > DEFAULT_UPLOAD_LIMITS.maxBytes
-    ) {
-      process.stdout.write(`skip ${entry.file}: over the 60 s / 100 MB demo limits\n`);
-      continue;
-    }
-    for (let copy = 1; copy <= copies; copy += 1) {
-      const fileId = BENCH ? `${entry.file}#${copy}` : entry.file;
-      if (await alreadyUploaded(deps, projectId, fileId)) {
-        process.stdout.write(`skip ${fileId}: already uploaded\n`);
-        continue;
-      }
-      const videoId = await upload(deps, projectId, entry, path, fileId);
-      process.stdout.write(`upload ${fileId} (${entry.license}) → ${videoId}\n`);
-    }
+  // The `latest` feed shows the most recently published first. So the licensed clips are
+  // published first (and fully), then the phone videos: phone videos lead the feed, the
+  // Blender clips come last. (The bench project uses only the licensed clips.)
+  const manifest = loadManifest();
+  const licensed = manifest.filter((entry) => !entry.file.startsWith("phone/"));
+  const phone = BENCH ? [] : manifest.filter((entry) => entry.file.startsWith("phone/"));
+  for (const group of [licensed, phone]) {
+    await uploadAll(deps, projectId, group);
+    await waitForWorker(deps, projectId);
   }
-  await waitForWorker(deps, projectId);
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exitCode = 1;

@@ -29,7 +29,16 @@ export interface PublicFeedVideo {
   likesCount: number;
   metadata: Record<string, unknown>;
   createdAt: string;
-  playback: { hlsUrl: string; posterUrl: string | null; placeholder: string | null };
+  playback: {
+    /** Master playlist starting at 720p (or the best rung below): for fast or unknown networks. */
+    hlsUrl: string;
+    /** The same renditions, starting at the lowest: for slow networks (native HLS starts on
+     *  the first variant listed, so the start quality is chosen by picking the playlist). */
+    hlsLowStartUrl: string;
+    posterUrl: string | null;
+    placeholder: string | null;
+    renditions: FeedVideo["renditions"];
+  };
   score?: FeedVideo["score"];
 }
 
@@ -50,11 +59,18 @@ function serializeFeedVideo(
     createdAt: video.readyAt.toISOString(),
     playback: {
       hlsUrl: storage.publicUrl(video.masterPlaylistKey),
+      hlsLowStartUrl: storage.publicUrl(lowStartKey(video.masterPlaylistKey)),
       posterUrl: video.posterKey ? storage.publicUrl(video.posterKey) : null,
       placeholder: video.placeholder,
+      renditions: video.renditions,
     },
     ...(explain && video.score ? { score: video.score } : {}),
   };
+}
+
+/** The worker writes master_low.m3u8 next to master.m3u8 (services/worker/internal/media). */
+function lowStartKey(masterKey: string): string {
+  return masterKey.replace(/master\.m3u8$/, "master_low.m3u8");
 }
 
 /** `latest`, `trending`, or `creator:<creatorId>`. */

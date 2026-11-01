@@ -21,10 +21,21 @@ Docker Desktop. Postgres 18.6 and RustFS 1.0.4 run locally in Docker.
 - **Same network for both modes:** each pair ran under the same DevTools throttle preset.
 - **Raw samples:** [`benchmarks/swipe-to-play-*.json`](benchmarks/).
 
+**Current build** (start at 720p, preload capped at ~4 s, warm next; 40 bench videos including
+1080p60 clips; measured 2026-11-01):
+
 | Network (Chrome preset) | Without preloading                | With preloading + warm next   | Faster by     |
 | ----------------------- | --------------------------------- | ----------------------------- | ------------- |
-| **Fast 4G**, 25 swipes  | p50 **916 ms** · p95 **1139 ms**  | p50 **36 ms** · p95 **94 ms** | **25×** (p50) |
-| **Slow 4G**, 20 swipes  | p50 **2551 ms** · p95 **2758 ms** | p50 **36 ms** · p95 **56 ms** | **71×** (p50) |
+| **Fast 4G**, 25 swipes  | p50 **1081 ms** · p95 **1381 ms** | p50 **35 ms** · p95 **75 ms** | **31×** (p50) |
+
+Starting on 720p instead of 240p makes the first segment bigger, so the no-preload path got
+slower (916 → 1081 ms p50). That is the price of a sharp first frame, and preloading hides it
+completely. Earlier build (240p start, whole-clip preloads, 30 bench videos):
+
+| Network (Chrome preset) | Without preloading        | With preloading + warm next | Faster by |
+| ----------------------- | ------------------------- | --------------------------- | --------- |
+| Fast 4G, 25 swipes      | p50 916 ms · p95 1139 ms  | p50 36 ms · p95 94 ms       | 25× (p50) |
+| Slow 4G, 20 swipes      | p50 2551 ms · p95 2758 ms | p50 36 ms · p95 56 ms       | 71× (p50) |
 
 With preloading, every swipe in both runs landed on an already-buffered video, so the network
 drops out of swipe-to-play entirely: the result is the same on Fast and Slow 4G. Without it, each
@@ -47,7 +58,78 @@ seconds after a pause. A video that played moments earlier started in 6–25 ms.
 viewing between swipes (8 swipes), warmed swipe-to-play stayed at p50 44 ms / p95 52 ms, so the
 periodic re-warm works.
 
-**Not yet measured:** iPhone Safari/Chrome (native HLS, WebKit) on a real device. See Phase 5 notes.
+**Not yet measured:** iPhone Safari/Chrome (native HLS, WebKit) on a real device: pending the
+retest with `/bench?preload=1|0` and `?debug=1`.
+
+### What warming and preloading cost
+
+Measured in Chrome over 60 s spent on one video, with N+1 warmed and N+2 preloaded
+(`/bench?warm=1`, 2026-11-01).
+
+|                           | Playing video (N) | Warmed next video (N+1)                    | Preloaded (N+2) |
+| ------------------------- | ----------------- | ------------------------------------------ | --------------- |
+| Frames decoded per minute | 1422              | **18** (+1.3% decode work)                 | 0               |
+| Extra data per minute     | —                 | **0** (it replays already-buffered frames) | 0               |
+| Buffered ahead, held      | whole clip        | 3.95 s                                     | 3.95 s          |
+
+- **Warming's cost is decode work, not data:** about 1.3% more frames decoded than playback
+  alone, and 0 bytes. Battery use on a real phone was not measured (no device instrumentation
+  here); decoded frames are the proxy.
+- **Preloading was the real data cost.** hls.js treats `maxBufferLength` as a _minimum_ and kept
+  buffering up to 60 MB / 600 s, so N+1 and N+2 each downloaded their whole clip. Preloads are
+  now hard-capped (`maxMaxBufferLength`) at ~4 s, two 2-second segments. At the 720p60 rung that
+  is ~1.7 MB per video swiped past, instead of the entire video.
+- **Adaptive:** warming switches off with Data Saver, on slow networks (2g/3g or a measured
+  estimate under 2.5 Mbps), with `prefers-reduced-data`, and on a low battery (< 20%, not
+  charging; Battery API, Chromium only). Off, swipe-to-play falls back to the "preload only"
+  numbers above (~150 ms). iOS Safari exposes none of these signals, but Low Power Mode refuses
+  autoplay, and the warmer then stops by itself.
+
+## Ladder quality
+
+VMAF (phone model, `vmaf_v0.6.1` with `enable_transform`) and SSIM, measured by
+[`cmd/ladder-quality`](../services/worker/cmd/ladder-quality/main.go). Each rung is encoded with
+the pipeline's exact settings (x264 `veryfast`, capped VBR, 2 s GOP, source frame rate),
+upscaled to the viewing size (1080x1920, or the source size if smaller), and compared with the
+source. The first 10 s of each clip; raw output in [`benchmarks/ladder-*.json`](benchmarks/).
+
+**Final ladder.** ≤30 fps targets are 300 / 1000 / 2500 / 4500 kbps; above 30 fps they are ×1.5.
+
+| Source                      | Rung              | Actual kbps | VMAF (phone) | SSIM   |
+| --------------------------- | ----------------- | ----------- | ------------ | ------ |
+| BBB 1080x1920 **60 fps**    | 240p              | 484         | 80.71        | 0.9863 |
+|                             | 480p              | 1494        | 96.14        | 0.9944 |
+|                             | 720p              | 3624        | 99.66        | 0.9974 |
+|                             | **1080p**         | 6727        | 99.99        | 0.9986 |
+| BBB 1080x1920 30 fps        | 240p              | 311         | 79.32        | 0.9848 |
+|                             | 480p              | 955         | 95.97        | 0.9934 |
+|                             | 720p              | 2300        | 99.61        | 0.9969 |
+|                             | 1080p             | 4228        | 99.96        | 0.9983 |
+| Sintel 460x818 24 fps       | 240p              | 298         | 93.39        | 0.9762 |
+|                             | **460p (native)** | 860         | 99.33        | 0.9910 |
+| BBB trailer 608x1080 25 fps | 240p              | 233         | 86.70        | 0.9553 |
+|                             | 480p              | 628         | 96.94        | 0.9842 |
+|                             | **608p (native)** | 1023        | 98.84        | 0.9918 |
+
+**How the bitrates were chosen.** A sweep at 0.35× / 0.6× / 1× / 1.4× of each target on the
+1080x1920 clip (at 60 and 30 fps) showed animation compresses very easily: 720p at 30 fps
+already reaches VMAF 98.7 at 1.6 Mbps. The ladder deliberately keeps headroom above what
+animation needs, for camera footage (sensor noise, fine texture). **The targets have not yet
+been validated on real phone footage.** When phone clips are added, run
+`go run ./cmd/ladder-quality <clip>` and adjust the table in
+[`ladder.go`](../services/worker/internal/media/ladder.go).
+
+**Why Sintel looked soft on the iPhone.** After the letterbox crop, Sintel is 460x818: below the
+480p rung. "Never upscale" therefore gave it **only the 240p rendition**, which the phone stretched
+to its 1170 px-wide screen. Sources more than 20% above their highest standard rung now get an
+extra native-resolution rung (460p here, VMAF 99.3). The phone was also starting every video on
+240p, because the master playlist listed 240p first and Safari starts on the first variant.
+
+**Frame rate** is preserved: 24, 25, 30, 50 and 60 fps (exact rational rates such as
+30000/1001) are never capped. Each rendition is encoded at the source rate; the 60 fps test
+confirms 60/1 on every rung including 720p and 1080p. Variable-rate phone clips snap to the
+nearest standard rate. Only high-speed captures above 60 fps (120/240 fps slow-motion) are
+reduced to 60.
 
 ## Time to first frame
 
@@ -121,10 +203,10 @@ These will be filled in by the phases that build them:
 
 `tsc` output, unminified, all modules included (2026-11-01):
 
-| Package | Raw | gzip |
-| --- | --- | --- |
+| Package                                                                        | Raw     | gzip    |
+| ------------------------------------------------------------------------------ | ------- | ------- |
 | `@reelplane/sdk-core` (player, preloading, metrics and the resumable uploader) | 38.1 KB | 10.8 KB |
-| `@reelplane/sdk-react` (`<ReelFeed />` + styles) | 14.7 KB | 4.9 KB |
+| `@reelplane/sdk-react` (`<ReelFeed />` + styles)                               | 14.7 KB | 4.9 KB  |
 
 hls.js is not included: it is a dynamic `import()`, so bundlers split it into a separate chunk,
 loaded on first playback and never on Apple devices (native HLS). Both packages are

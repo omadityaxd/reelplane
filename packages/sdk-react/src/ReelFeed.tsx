@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { DebugOverlay } from "./DebugOverlay.tsx";
 import { STYLES } from "./styles.ts";
 
 export interface ReelFeedProps {
@@ -38,6 +39,8 @@ export interface ReelFeedProps {
   onActiveChange?: (item: FeedItem, index: number) => void;
   /** Replace the default title/credit overlay. */
   renderOverlay?: (item: FeedItem, index: number) => ReactNode;
+  /** Show live playback details (rendition, bitrate, fps, buffer, dropped frames). */
+  debug?: boolean;
   /** Advanced controller options (benchmarks use `urlTransform` and `sendMetrics`). */
   controllerOptions?: Partial<FeedControllerOptions>;
   className?: string;
@@ -213,6 +216,7 @@ export function ReelFeed(props: ReelFeedProps) {
           onNext={() => go(1)}
         />
       )}
+      {props.debug && controller && <DebugOverlay controller={controller} />}
       <p className="rp-sr-only" aria-live="polite">
         {announcement}
       </p>

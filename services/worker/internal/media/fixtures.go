@@ -18,6 +18,8 @@ type Clip struct {
 	Audio         bool
 	// Rotation is written as display-matrix metadata, like a phone held upright.
 	Rotation int
+	// HLG makes a 10-bit BT.2020 HLG clip, like iPhone HDR video.
+	HLG bool
 }
 
 // GenerateClip writes the clip to path (H.264/AAC MP4).
@@ -28,7 +30,14 @@ func GenerateClip(ctx context.Context, ffmpeg, path string, clip Clip) error {
 	if clip.Audio {
 		args = append(args, "-f", "lavfi", "-i", "sine=frequency=440:duration="+seconds)
 	}
-	args = append(args, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p")
+	if clip.HLG {
+		// libx264 only writes the colour description into the stream via its own params.
+		args = append(args, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le",
+			"-x264-params", "colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc",
+			"-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc")
+	} else {
+		args = append(args, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p")
+	}
 	if clip.Audio {
 		args = append(args, "-c:a", "aac", "-shortest")
 	}

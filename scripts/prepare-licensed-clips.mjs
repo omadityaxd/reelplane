@@ -3,8 +3,8 @@
 // manifest (content/showcase/licenses.json) is committed.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const root = join(import.meta.dirname, "..", "content");
 const downloads = join(root, "downloads");
@@ -32,10 +32,26 @@ const SOURCES = {
     homepage: "https://peach.blender.org/",
     picture: { y: 0, height: 1080 },
   },
+  bbb60: {
+    // The 4K 60 fps master: the only source here that yields true vertical 1080x1920 at 60 fps.
+    url: "https://download.blender.org/demo/movies/BBB/bbb_sunflower_2160p_60fps_normal.mp4.zip",
+    zipped: true,
+    file: "bbb60/bbb_sunflower_2160p_60fps_normal.mp4",
+    title: "Big Buck Bunny 60 fps",
+    credit: "© copyright 2008, Blender Foundation | www.bigbuckbunny.org",
+    license: "CC BY 3.0",
+    licenseUrl: "https://creativecommons.org/licenses/by/3.0/",
+    homepage: "https://peach.blender.org/",
+    picture: { y: 0, height: 2160 },
+    // 1216x2160 window, downscaled (never upscaled) to the 1080x1920 phone frame.
+    scaleTo: { width: 1080, height: 1920 },
+  },
 };
 
 // [source, start s, duration s, horizontal crop centre 0..1]
 const CLIPS = [
+  ["bbb60", 64, 12, 0.5],
+  ["bbb60", 330, 12, 0.45],
   ["bbb", 1, 10, 0.5],
   ["bbb", 11, 10, 0.45],
   ["bbb", 21, 11, 0.55],
@@ -55,7 +71,18 @@ for (const source of Object.values(SOURCES)) {
   const path = join(downloads, source.file);
   if (!existsSync(path)) {
     process.stdout.write(`downloading ${source.url}\n`);
-    execFileSync("curl", ["-sSfL", "-o", path, source.url], { stdio: "inherit" });
+    const target = source.zipped ? `${path}.zip` : path;
+    mkdirSync(dirname(path), { recursive: true });
+    execFileSync("curl", ["-sSfL", "-o", target, source.url], { stdio: "inherit" });
+    if (source.zipped) {
+      // bsdtar (Windows, macOS) reads zip archives; GNU tar does not, so fall back to unzip.
+      try {
+        execFileSync("tar", ["-xf", target, "-C", dirname(path)], { stdio: "inherit" });
+      } catch {
+        execFileSync("unzip", ["-o", "-q", target, "-d", dirname(path)], { stdio: "inherit" });
+      }
+      rmSync(target);
+    }
   }
   source.sha256 = sha256(path);
 }
@@ -67,6 +94,12 @@ const manifest = CLIPS.map(([id, start, duration, centre], index) => {
   const { y, height } = source.picture;
   const width = Math.round((height * 9) / 16 / 2) * 2;
   const crop = `crop=${width}:${height}:(iw-${width})*${centre}:${y}`;
+  const filter = source.scaleTo
+    ? `${crop},scale=${source.scaleTo.width}:${source.scaleTo.height}:flags=lanczos`
+    : crop;
+  const size = source.scaleTo
+    ? `${source.scaleTo.width}x${source.scaleTo.height}`
+    : `${width}x${height}`;
   execFileSync(
     "ffmpeg",
     [
@@ -81,7 +114,7 @@ const manifest = CLIPS.map(([id, start, duration, centre], index) => {
       "-i",
       join(downloads, source.file),
       "-vf",
-      crop,
+      filter,
       "-c:v",
       "libx264",
       "-preset",
@@ -110,7 +143,7 @@ const manifest = CLIPS.map(([id, start, duration, centre], index) => {
     licenseUrl: source.licenseUrl,
     source: source.url,
     sourceSha256: source.sha256,
-    changes: `Excerpt ${start}s–${start + duration}s, cropped to 9:16 (${width}x${height}), re-encoded.`,
+    changes: `Excerpt ${start}s–${start + duration}s, cropped to 9:16 (${size}), re-encoded.`,
   };
 });
 

@@ -2,6 +2,15 @@ import type { Pool } from "./pool.ts";
 import { withTenant } from "./tenant.ts";
 import { decodeCursor, encodeCursor } from "./videos.ts";
 
+/** One HLS rendition, as measured by the worker. */
+export interface FeedRendition {
+  name: string;
+  width: number;
+  height: number;
+  bitrateKbps: number;
+  fps: number | null;
+}
+
 export interface FeedVideo {
   id: string;
   title: string | null;
@@ -14,6 +23,7 @@ export interface FeedVideo {
   posterKey: string | null;
   placeholder: string | null;
   metadata: Record<string, unknown>;
+  renditions: FeedRendition[];
   createdAt: Date;
   readyAt: Date;
   /** Trending only: the inputs and result of the score, for `?explain=1`. */
@@ -53,6 +63,7 @@ interface FeedRow {
   poster_key: string | null;
   placeholder: string | null;
   metadata: Record<string, unknown>;
+  renditions: FeedRendition[];
   created_at: Date;
   ready_at: Date;
   age_hours?: number;
@@ -60,7 +71,10 @@ interface FeedRow {
 }
 
 const COLUMNS = `id, title, creator_id, duration_ms, width, height, likes_count, views_count,
-  completions_count, master_playlist_key, poster_key, placeholder, metadata, created_at, ready_at`;
+  completions_count, master_playlist_key, poster_key, placeholder, metadata, created_at, ready_at,
+  (select coalesce(json_agg(json_build_object('name', r.name, 'width', r.width, 'height', r.height,
+            'bitrateKbps', r.bitrate_kbps, 'fps', r.fps) order by r.height), '[]'::json)
+     from reelplane.renditions r where r.video_id = videos.id) as renditions`;
 
 function toFeedVideo(row: FeedRow): FeedVideo {
   const video: FeedVideo = {
@@ -75,6 +89,7 @@ function toFeedVideo(row: FeedRow): FeedVideo {
     posterKey: row.poster_key,
     placeholder: row.placeholder,
     metadata: row.metadata,
+    renditions: row.renditions.map((r) => ({ ...r, fps: r.fps === null ? null : Number(r.fps) })),
     createdAt: row.created_at,
     readyAt: row.ready_at,
   };
