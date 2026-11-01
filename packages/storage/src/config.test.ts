@@ -20,6 +20,14 @@ describe("loadStorageConfig", () => {
     expect(config.publicBaseUrl).toBe("http://localhost:9000/reelplane");
   });
 
+  it("keeps local defaults when only the public URL is overridden (LAN playback)", () => {
+    const config = loadStorageConfig({
+      STORAGE_PUBLIC_BASE_URL: "http://192.168.1.12:9000/reelplane",
+    });
+    expect(config.provider).toBe("local");
+    expect(config.publicBaseUrl).toBe("http://192.168.1.12:9000/reelplane");
+  });
+
   it("switches provider purely through env vars", () => {
     const config = loadStorageConfig(b2Env);
     expect(config.provider).toBe("b2");

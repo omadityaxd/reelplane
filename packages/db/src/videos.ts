@@ -27,6 +27,7 @@ export interface Video {
   placeholder: string | null;
   isShowcase: boolean;
   likesCount: number;
+  metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
   readyAt: Date | null;
@@ -56,6 +57,7 @@ interface VideoRow {
   placeholder: string | null;
   is_showcase: boolean;
   likes_count: number;
+  metadata: Record<string, unknown>;
   created_at: Date;
   updated_at: Date;
   ready_at: Date | null;
@@ -64,7 +66,7 @@ interface VideoRow {
 const VIDEO_COLUMNS = `id, project_id, status, failure_reason, creator_id, title, content_type,
   size_bytes, source_key, upload_id, upload_expires_at, part_size_bytes, original_filename,
   declared_duration_ms, duration_ms, width, height, master_playlist_key, poster_key,
-  thumbnail_keys, placeholder, is_showcase, likes_count, created_at, updated_at, ready_at`;
+  thumbnail_keys, placeholder, is_showcase, likes_count, metadata, created_at, updated_at, ready_at`;
 
 function toVideo(row: VideoRow): Video {
   return {
@@ -92,6 +94,7 @@ function toVideo(row: VideoRow): Video {
     placeholder: row.placeholder,
     isShowcase: row.is_showcase,
     likesCount: row.likes_count,
+    metadata: row.metadata,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     readyAt: row.ready_at,
@@ -112,6 +115,7 @@ export interface NewUploadingVideo {
   declaredDurationMs?: number | undefined;
   title?: string | undefined;
   creatorId?: string | undefined;
+  metadata?: Record<string, string> | undefined;
 }
 
 export function insertUploadingVideo(pool: Pool, input: NewUploadingVideo): Promise<Video> {
@@ -119,8 +123,8 @@ export function insertUploadingVideo(pool: Pool, input: NewUploadingVideo): Prom
     const { rows } = await client.query<VideoRow>(
       `insert into reelplane.videos
          (id, project_id, status, content_type, size_bytes, source_key, upload_id, upload_token_hash,
-          upload_expires_at, part_size_bytes, original_filename, declared_duration_ms, title, creator_id)
-       values ($1, $2, 'uploading', $3, $4, $5, $6, $7, now() + make_interval(secs => $8), $9, $10, $11, $12, $13)
+          upload_expires_at, part_size_bytes, original_filename, declared_duration_ms, title, creator_id, metadata)
+       values ($1, $2, 'uploading', $3, $4, $5, $6, $7, now() + make_interval(secs => $8), $9, $10, $11, $12, $13, $14)
        returning ${VIDEO_COLUMNS}`,
       [
         input.id,
@@ -136,6 +140,7 @@ export function insertUploadingVideo(pool: Pool, input: NewUploadingVideo): Prom
         input.declaredDurationMs ?? null,
         input.title ?? null,
         input.creatorId ?? null,
+        JSON.stringify(input.metadata ?? {}),
       ],
     );
     const row = rows[0];

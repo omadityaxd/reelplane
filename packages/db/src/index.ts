@@ -10,6 +10,24 @@ export {
   rotateApiKey,
 } from "./api-keys.ts";
 export {
+  COMPLETION_THRESHOLD,
+  type PlaybackEventInput,
+  type PlaybackEventType,
+  type PlaybackStats,
+  playbackStats,
+  recordPlaybackEvents,
+  setLike,
+} from "./engagement.ts";
+export {
+  type FeedInput,
+  type FeedPage,
+  type FeedSpec,
+  type FeedVideo,
+  getFeed,
+  TRENDING_SQL,
+  type TrendingScore,
+} from "./feeds.ts";
+export {
   claimIdempotencyKey,
   completeIdempotencyKey,
   type IdempotencyClaim,
@@ -38,6 +56,7 @@ export {
   listProjectsForUser,
   normalizeOrigin,
   type Project,
+  setAllowedOrigins,
 } from "./projects.ts";
 export { type TenantContext, withTenant, withWorker } from "./tenant.ts";
 export {

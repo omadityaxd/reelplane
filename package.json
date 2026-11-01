@@ -26,7 +26,12 @@
     "worker:lint": "node scripts/check-gofmt.mjs && cd services/worker && go vet ./...",
     "worker:test": "cd services/worker && go test ./...",
     "worker:chaos": "pnpm worker:build && cd services/worker && go run ./cmd/chaos",
-    "worker:up": "docker compose --profile worker up -d --build worker"
+    "worker:up": "docker compose --profile worker up -d --build worker",
+    "showcase:clips": "node scripts/prepare-licensed-clips.mjs",
+    "showcase:seed": "tsx scripts/seed-showcase.ts",
+    "bench:seed": "tsx scripts/seed-showcase.ts --bench",
+    "demo": "pnpm --filter @reelplane/web dev:lan",
+    "showcase:reset": "tsx scripts/reset-showcase.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

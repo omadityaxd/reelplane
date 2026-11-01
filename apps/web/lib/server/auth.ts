@@ -25,6 +25,12 @@ export interface AuthOptions {
   allow: readonly Credential[];
   /** For upload-token routes: the video the token must belong to. */
   videoId?: string | undefined;
+  /**
+   * Also accept a publishable key as `?key=` (secret keys are refused there: URLs end up in
+   * logs). Needed for metrics flushed on page unload, which cannot send custom headers
+   * without a CORS preflight.
+   */
+  allowQueryKey?: boolean | undefined;
 }
 
 export interface AuthDeps {
@@ -77,7 +83,9 @@ export async function authenticateRequest(
   options: AuthOptions,
   deps: AuthDeps,
 ): Promise<AuthContext> {
-  const credential = extractBearer(request);
+  const fromHeader = extractBearer(request);
+  const credential =
+    fromHeader ?? (options.allowQueryKey ? new URL(request.url).searchParams.get("key") : null);
   if (!credential) {
     throw new ApiError("unauthorized", "Missing API key. Send `Authorization: Bearer <key>`.");
   }
@@ -89,6 +97,12 @@ export async function authenticateRequest(
   const key = await authenticateApiKey(deps.pool, credential, deps.pepper);
   if (!key) throw new ApiError("unauthorized", "Invalid, revoked or expired API key.");
 
+  if (key.kind === "secret" && !fromHeader) {
+    throw new ApiError(
+      "forbidden",
+      "Secret keys must be sent in the Authorization header, never in a URL.",
+    );
+  }
   if (key.kind === "secret" && origin) {
     // A secret key seen from a browser has leaked into client code: refuse loudly.
     throw new ApiError(

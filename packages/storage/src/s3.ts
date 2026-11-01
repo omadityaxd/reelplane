@@ -12,6 +12,7 @@ import {
   ListObjectsV2Command,
   ListPartsCommand,
   PutBucketCorsCommand,
+  PutBucketPolicyCommand,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
@@ -290,12 +291,21 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 }
 
+/** Published HLS outputs live here and are world-readable; originals stay private. */
+export const PUBLIC_MEDIA_PREFIX = "media/";
+
+export interface EnsureBucketResult {
+  created: boolean;
+  /** null when the public-read policy was applied, else why it could not be. */
+  publicReadError: string | null;
+}
+
 /** One-off bucket administration used by `pnpm infra:init`; not part of the runtime interface. */
 export async function ensureBucket(
   client: S3Client,
   bucket: string,
   allowedOrigins: string[],
-): Promise<{ created: boolean }> {
+): Promise<EnsureBucketResult> {
   let created = false;
   try {
     await client.send(new HeadBucketCommand({ Bucket: bucket }));
@@ -321,5 +331,33 @@ export async function ensureBucket(
       },
     }),
   );
-  return { created };
+  return { created, publicReadError: await allowPublicMediaReads(client, bucket) };
+}
+
+/**
+ * Lets anyone GET objects under `media/` (players fetch segments directly). Not every
+ * S3-compatible provider supports bucket policies: B2 uses a "public bucket" setting and R2 a
+ * public bucket domain instead, so failure is reported, not thrown.
+ */
+async function allowPublicMediaReads(client: S3Client, bucket: string): Promise<string | null> {
+  const policy = {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Sid: "PublicReadPublishedMedia",
+        Effect: "Allow",
+        Principal: { AWS: ["*"] },
+        Action: ["s3:GetObject"],
+        Resource: [`arn:aws:s3:::${bucket}/${PUBLIC_MEDIA_PREFIX}*`],
+      },
+    ],
+  };
+  try {
+    await client.send(
+      new PutBucketPolicyCommand({ Bucket: bucket, Policy: JSON.stringify(policy) }),
+    );
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }

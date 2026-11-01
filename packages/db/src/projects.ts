@@ -86,6 +86,23 @@ export function getProject(pool: Pool, projectId: string): Promise<Project | nul
   });
 }
 
+/** Replaces a project's allowed browser origins (dashboard user scope). */
+export function setAllowedOrigins(
+  pool: Pool,
+  ownerId: string,
+  projectId: string,
+  origins: string[],
+): Promise<Project | null> {
+  const normalized = [...new Set(origins.map(normalizeOrigin))];
+  return withTenant(pool, { userId: ownerId }, async (client) => {
+    const { rows } = await client.query<ProjectRow>(
+      `update reelplane.projects set allowed_origins = $2 where id = $1 returning ${PROJECT_COLUMNS}`,
+      [projectId, normalized],
+    );
+    return rows[0] ? toProject(rows[0]) : null;
+  });
+}
+
 export function listProjectsForUser(pool: Pool, userId: string): Promise<Project[]> {
   return withTenant(pool, { userId }, async (client) => {
     const { rows } = await client.query<ProjectRow>(

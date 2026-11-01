@@ -1,0 +1,68 @@
+[
+  {
+    "file": "licensed/bbb-01.mp4",
+    "title": "Big Buck Bunny (excerpt 1s–11s)",
+    "creator": "Blender Foundation",
+    "credit": "© copyright 2008, Blender Foundation | www.bigbuckbunny.org",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "source": "https://download.blender.org/peach/trailer/trailer_1080p.mov",
+    "sourceSha256": "67a3abdfd142e6c32a1994960077a5669b59a5745adceac41de8de540736dc9f",
+    "changes": "Excerpt 1s–11s, cropped to 9:16 (608x1080), re-encoded."
+  },
+  {
+    "file": "licensed/bbb-02.mp4",
+    "title": "Big Buck Bunny (excerpt 11s–21s)",
+    "creator": "Blender Foundation",
+    "credit": "© copyright 2008, Blender Foundation | www.bigbuckbunny.org",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "source": "https://download.blender.org/peach/trailer/trailer_1080p.mov",
+    "sourceSha256": "67a3abdfd142e6c32a1994960077a5669b59a5745adceac41de8de540736dc9f",
+    "changes": "Excerpt 11s–21s, cropped to 9:16 (608x1080), re-encoded."
+  },
+  {
+    "file": "licensed/bbb-03.mp4",
+    "title": "Big Buck Bunny (excerpt 21s–32s)",
+    "creator": "Blender Foundation",
+    "credit": "© copyright 2008, Blender Foundation | www.bigbuckbunny.org",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "source": "https://download.blender.org/peach/trailer/trailer_1080p.mov",
+    "sourceSha256": "67a3abdfd142e6c32a1994960077a5669b59a5745adceac41de8de540736dc9f",
+    "changes": "Excerpt 21s–32s, cropped to 9:16 (608x1080), re-encoded."
+  },
+  {
+    "file": "licensed/sintel-04.mp4",
+    "title": "Sintel (excerpt 4s–16s)",
+    "creator": "Blender Foundation",
+    "credit": "© copyright Blender Foundation | durian.blender.org",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "source": "https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4",
+    "sourceSha256": "34bbd52a4b89fdf63c8ace50b268da26653a59508288100cd3c23de276db7931",
+    "changes": "Excerpt 4s–16s, cropped to 9:16 (460x818), re-encoded."
+  },
+  {
+    "file": "licensed/sintel-05.mp4",
+    "title": "Sintel (excerpt 17s–29s)",
+    "creator": "Blender Foundation",
+    "credit": "© copyright Blender Foundation | durian.blender.org",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "source": "https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4",
+    "sourceSha256": "34bbd52a4b89fdf63c8ace50b268da26653a59508288100cd3c23de276db7931",
+    "changes": "Excerpt 17s–29s, cropped to 9:16 (460x818), re-encoded."
+  },
+  {
+    "file": "licensed/sintel-06.mp4",
+    "title": "Sintel (excerpt 30s–42s)",
+    "creator": "Blender Foundation",
+    "credit": "© copyright Blender Foundation | durian.blender.org",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "source": "https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4",
+    "sourceSha256": "34bbd52a4b89fdf63c8ace50b268da26653a59508288100cd3c23de276db7931",
+    "changes": "Excerpt 30s–42s, cropped to 9:16 (460x818), re-encoded."
+  }
+]

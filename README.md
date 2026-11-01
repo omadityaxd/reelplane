@@ -25,6 +25,26 @@ pnpm worker:up     # or: build and run the Docker image next to the local stack
 pnpm worker:chaos  # kill workers at random while N jobs run; checks exactly-once
 ```
 
+The demo feed and the swipe-to-play benchmark (needs the worker running):
+
+```bash
+pnpm showcase:clips   # cut the CC BY Blender clips (see content/README.md)
+pnpm showcase:seed    # upload them + your phone videos through the real upload path
+pnpm bench:seed       # 30 distinct videos for /bench
+pnpm --filter @reelplane/web build && pnpm --filter @reelplane/web start -H 0.0.0.0
+# open http://<your-lan-ip>:3000 on your phone (same Wi-Fi); /bench?preload=1|0 to measure
+```
+
+Use it in your app:
+
+```tsx
+import { ReelFeed } from "@reelplane/sdk-react";
+
+<div style={{ height: "100dvh" }}>
+  <ReelFeed publishableKey="rp_pk_…" feed="trending" />
+</div>;
+```
+
 Run the storage contract against the real local S3 server:
 
 ```bash

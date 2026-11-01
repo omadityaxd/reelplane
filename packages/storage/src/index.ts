@@ -9,7 +9,13 @@ export {
   type StorageProvider,
 } from "./config.ts";
 export { MemoryObjectStorage } from "./memory.ts";
-export { createS3Client, ensureBucket, S3ObjectStorage } from "./s3.ts";
+export {
+  createS3Client,
+  type EnsureBucketResult,
+  ensureBucket,
+  PUBLIC_MEDIA_PREFIX,
+  S3ObjectStorage,
+} from "./s3.ts";
 export type { ObjectInfo, ObjectStorage, PutOptions, UploadedPart } from "./types.ts";
 export { StorageError } from "./types.ts";
 

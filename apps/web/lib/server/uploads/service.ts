@@ -82,6 +82,7 @@ export async function createUploadSession(
       declaredDurationMs: input.durationMs,
       title: input.title,
       creatorId: input.creatorId,
+      metadata: input.metadata,
     });
   } catch (error) {
     // Don't leave an orphaned multipart upload accruing storage.

@@ -17,3 +17,11 @@ services/worker/bin/
 *.log
 .DS_Store
 .vercel
+
+# Showcase media: large binaries, never committed (see content/README.md)
+content/downloads/
+content/showcase/**/*.mp4
+content/showcase/**/*.mov
+content/showcase/**/*.MOV
+content/showcase/**/*.webm
+content/showcase/**/*.m4v

@@ -10,6 +10,11 @@ export const createUploadSchema = z.strictObject({
   filename: z.string().trim().min(1).max(255).optional(),
   title: z.string().trim().max(200).optional(),
   creatorId: z.string().trim().min(1).max(200).optional(),
+  /** Free-form strings shown with the video (e.g. a credit line); at most 20 keys. */
+  metadata: z
+    .record(z.string().regex(/^[a-zA-Z0-9_]{1,40}$/), z.string().max(500))
+    .refine((value) => Object.keys(value).length <= 20, "at most 20 metadata keys")
+    .optional(),
 });
 export type CreateUploadInput = z.infer<typeof createUploadSchema>;
 

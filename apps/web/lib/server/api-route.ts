@@ -5,6 +5,8 @@ export interface ApiRouteOptions {
   allow: readonly Credential[];
   /** Route param holding the video id an upload token must match (e.g. "id"). */
   uploadTokenParam?: string;
+  /** See AuthOptions.allowQueryKey. */
+  allowQueryKey?: boolean;
 }
 
 type Params = Record<string, string | string[] | undefined>;
@@ -84,7 +86,11 @@ export function apiRoute<D extends AuthDeps>(
       const params = await resolveParams(context);
       const resolved = deps();
       const videoId = options.uploadTokenParam ? params[options.uploadTokenParam] : undefined;
-      const auth = await authenticateRequest(request, { allow: options.allow, videoId }, resolved);
+      const auth = await authenticateRequest(
+        request,
+        { allow: options.allow, videoId, allowQueryKey: options.allowQueryKey },
+        resolved,
+      );
       return withCors(await handler({ request, auth, deps: resolved, params }), auth.origin);
     } catch (error) {
       return errorResponse(error);

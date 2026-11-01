@@ -2,6 +2,96 @@
 
 This document grows phase by phase. Each decision lists the trade-off it accepts.
 
+## Playback and the Reels experience (Phase 5)
+
+Code: [`packages/sdk-core`](../packages/sdk-core/src) (framework-free) and
+[`packages/sdk-react`](../packages/sdk-react/src) (`<ReelFeed />`).
+
+### Preloading strategy
+
+```
+           N-1          N            N+1                 N+2
+role       keep         play         preload + warm      preload
+element    paused       playing      1 frame / 4 s       paused, ~whole clip buffered
+```
+
+- **Window:** while N plays, N+1 and N+2 load their playlists and first segments at the lowest
+  rendition, and N-1 stays loaded for swiping back. Everything else is unloaded. The hls.js
+  instance is destroyed and the `<video>` emptied, so memory and data stay bounded however long
+  the feed is.
+- **A fixed pool of 4 `<video>` elements is recycled.** A slot whose item is still in the window
+  keeps it (no reload); a freed slot takes the new item. Live media elements are expensive (each
+  has a decoder), and mobile browsers cap them.
+- **Warm the next video, don't just preload it.** Measurement showed preloading data alone left
+  ~150 ms of player start-up after every swipe (see [BENCHMARKS.md](BENCHMARKS.md)). N+1 now
+  plays a single muted frame offscreen and pauses, repeated every 4 s, which brought
+  swipe-to-play from p50 152 ms to 36 ms. Only N+1 is warmed (the likeliest next swipe), at the
+  cost of one tiny decode every few seconds.
+- **Start low, then ramp:** every player starts at the lowest rendition (`startLevel: 0`), so
+  the first segment is small. hls.js ABR moves up once playback runs, and
+  `capLevelToPlayerSize` stops it fetching more pixels than the screen shows. A preloaded
+  player buffers only ~3 s until promoted, then 20 s.
+- **Native HLS on Apple, hls.js elsewhere.** All iOS browsers are WebKit and play HLS natively,
+  so hls.js (imported lazily) is never downloaded there.
+
+### Metrics
+
+Each activation starts a view tracked from activation to `end()`:
+
+- **TTFF:** activation → first painted frame (`requestVideoFrameCallback`).
+- **Rebuffers:** `waiting` after the first frame, counted only if the element isn't seeking
+  (loops seek) and the stall lasts ≥ 100 ms. The first real ingest recorded 91 "stalls" of
+  2–6 ms each before these rules.
+- **Watch time:** summed `timeupdate` progress while playing.
+- **Completion:** the furthest position reached (a loop counts as 100%).
+- **Quality switches:** from hls.js.
+
+Metrics are batched (20 events or 10 s). On page hide they are flushed with `fetch(…, {keepalive:
+true})`, a `text/plain` body and the publishable key in the URL. That form is a "simple" request,
+so it needs no CORS preflight and the browser delivers it while the page unloads. The API accepts
+a key in the URL only for this endpoint, and only a _publishable_ key.
+
+### Feeds
+
+- **`latest`** and **`creator:<id>`** use keyset pagination on `(ready_at, id)`: new uploads never
+  shift or duplicate items on later pages.
+- **`trending`** is deliberately explainable (`?explain=1` returns every input):
+
+  ```
+  engagement = 1 + 3·likes + 2·completions + 0.5·views
+  quality    = 0.5 + completions/views        (0.5 … 1.5)
+  score      = engagement · quality / (ageHours + 2)^1.5
+  ```
+
+  The `(age + 2)^1.5` gravity is Hacker News's: a fresh video can rank before it has any
+  engagement, and everything decays unless people keep watching. Scores are computed "as of"
+  the first page's time, which the cursor carries, so the order doesn't shift mid-scroll.
+  Candidates are bounded (500 most recent, 30 days).
+- **Caching:** pages are cached for 10 s per server instance; Upstash can share the cache across
+  instances later.
+- **Counters:** views and completions come from `watch` events. Likes are maintained by a trigger
+  on the likes table, so the count can't drift.
+- **Known limit:** engagement comes from the client and could be inflated by a determined user.
+  Phase 7 adds rate limits; a production system would also weight by session reputation.
+
+### The component
+
+- **CSS scroll-snap** (`mandatory` + `scroll-snap-stop: always`) does the swiping. It gives native
+  momentum and exactly one video per swipe on real phones, with no gesture code.
+- **An IntersectionObserver** (≥ 60% visible) picks the active item.
+- **Desktop:** a phone-width column. Wheel, arrow keys / PageUp / PageDown / `j` `k` all scroll.
+- **Controls:** tap pauses; Space toggles; `m` mutes.
+- **Autoplay** is muted and `playsinline`, the combination mobile browsers allow; "tap to play"
+  appears if autoplay is refused.
+- **Accessibility:** the feed is a focusable `<section>`. Items are `<article>`s with titles and
+  position labels, buttons have labels, and changes are announced through an `aria-live` region.
+  Reduced motion turns off smooth scrolling.
+- **Theming:** CSS custom properties (`--rp-accent`, `--rp-background`, …), with light and dark
+  defaults.
+- **Explicit geometry:** the track is N viewports tall and every slide and pooled video is
+  positioned in percentages of it. With implicit heights the slides collapsed to zero, and every
+  item counted as "visible" at once.
+
 ## The job queue and transcoding worker (Phase 4)
 
 Code: [`services/worker`](../services/worker). The queue is Postgres

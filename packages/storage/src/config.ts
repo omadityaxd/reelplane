@@ -49,8 +49,14 @@ type Env = Record<string, string | undefined>;
  * falls back to the local RustFS container so the project runs before any account exists.
  */
 export function loadStorageConfig(env: Env = process.env): StorageConfig {
-  const hasAnyStorageVar = STORAGE_KEYS.some((key) => env[key]);
-  const source: Env = hasAnyStorageVar ? env : { ...LOCAL_STORAGE_DEFAULTS };
+  // STORAGE_PUBLIC_BASE_URL alone keeps the local defaults: it only changes how playback URLs
+  // are built (e.g. a LAN address so a phone can reach the laptop's storage).
+  const hasProviderConfig = STORAGE_KEYS.some(
+    (key) => key !== "STORAGE_PUBLIC_BASE_URL" && env[key],
+  );
+  const source: Env = hasProviderConfig
+    ? env
+    : { ...LOCAL_STORAGE_DEFAULTS, STORAGE_PUBLIC_BASE_URL: env.STORAGE_PUBLIC_BASE_URL };
   const cleaned = Object.fromEntries(
     STORAGE_KEYS.filter((key) => source[key]).map((key) => [key, source[key]]),
   );

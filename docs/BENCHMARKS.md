@@ -6,6 +6,67 @@ Rows still marked _pending_ have not been measured yet; they are never estimated
 **Hardware (laptop):** Intel Core i7-14650HX (16 cores / 24 threads), 16 GB RAM, Windows 11,
 Docker Desktop. Postgres 18.6 and RustFS 1.0.4 run locally in Docker.
 
+## Swipe-to-play: with vs without preloading
+
+**Swipe-to-play** is the time from a swipe to the next video's first _painted_ frame
+(`requestVideoFrameCallback`), measured by [`/bench`](../apps/web/app/bench/bench-runner.tsx).
+
+**Method.**
+- **Browser and build:** Chrome via DevTools, emulating a 390x844 @3x touch phone, against the
+  production build (`next start`).
+- **Content:** the same 30 bench videos (6 licensed clips × 5 copies, each a distinct video
+  with its own URLs), 2–3 s of viewing between swipes.
+- **Cold cache in both modes:** every run is a fresh page in its own browser context, and every
+  media URL carries a per-run nonce.
+- **Same network for both modes:** each pair ran under the same DevTools throttle preset.
+- **Raw samples:** [`benchmarks/swipe-to-play-*.json`](benchmarks/).
+
+| Network (Chrome preset) | Without preloading                | With preloading + warm next   | Faster by     |
+| ----------------------- | --------------------------------- | ----------------------------- | ------------- |
+| **Fast 4G**, 25 swipes  | p50 **916 ms** · p95 **1139 ms**  | p50 **36 ms** · p95 **94 ms** | **25×** (p50) |
+| **Slow 4G**, 20 swipes  | p50 **2551 ms** · p95 **2758 ms** | p50 **36 ms** · p95 **56 ms** | **71×** (p50) |
+
+With preloading, every swipe in both runs landed on an already-buffered video, so the network
+drops out of swipe-to-play entirely: the result is the same on Fast and Slow 4G. Without it, each
+swipe waits for the master playlist, the variant playlist, the init segment and the first media
+segment, so the cost grows as the network gets worse.
+
+**How the preloading number was reached** (each step measured):
+
+| Version                                        | Fast 4G p50 / p95 | What changed                                                 |
+| ---------------------------------------------- | ----------------- | ------------------------------------------------------------ |
+| Preload only (first build)                     | 184 / 205 ms      | —                                                            |
+| Skip the needless seek to 0                    | 152 / 167 ms      | promoting a preloaded video no longer sets `currentTime = 0` |
+| Defer other slots' setup until the first frame | 172 / 209 ms      | **no gain, reverted**                                        |
+| **Warm the next video**                        | **36 / 94 ms**    | N+1 plays one muted offscreen frame, re-warmed every 4 s     |
+
+The warm-up step came from measuring Chrome directly. A preloaded `<video>` that has _never
+played_ took 140–210 ms from `play()` to its first new frame, with the whole clip already
+buffered. The decoder and renderer start lazily on first play and are torn down again some
+seconds after a pause. A video that played moments earlier started in 6–25 ms. With 9 s of
+viewing between swipes (8 swipes), warmed swipe-to-play stayed at p50 44 ms / p95 52 ms, so the
+periodic re-warm works.
+
+**Not yet measured:** iPhone Safari/Chrome (native HLS, WebKit) on a real device. See Phase 5 notes.
+
+## Time to first frame
+
+From the same runs: **TTFF** = the SDK's own metric, from a video becoming active to its first
+painted frame.
+
+|                                                                 | p50     | p95     | n   |
+| --------------------------------------------------------------- | ------- | ------- | --- |
+| After a swipe, preloaded (Fast 4G)                              | 32 ms   | 93 ms   | 25  |
+| After a swipe, not preloaded (Fast 4G)                          | 914 ms  | 1137 ms | 25  |
+| First video of a page, activation → first frame (Fast 4G)       | 1163 ms | 1621 ms | 10  |
+| First video of a page, navigation start → first frame (Fast 4G) | 1669 ms | 3457 ms | 10  |
+
+The first-video p95 is the first load of the page, before the JS bundle and the lazily loaded
+hls.js chunk were cached. During startup the feed shows the blurred inline placeholder and then
+the poster, so the screen is never blank. The first video still costs four sequential requests;
+shortening that is future work (for example, inlining the first rendition's playlists in the
+feed response).
+
 ## Chaos test: the queue under hard kills
 
 `pnpm worker:chaos -- -jobs 100 -workers 4 -kill-min 800ms -kill-max 2500ms -seed 7`, run on
@@ -53,6 +114,18 @@ together, `-preset veryfast`, 720x1280 30 fps source with AAC audio.
 
 These will be filled in by the phases that build them:
 
-- Time to first frame, p50/p95 (Phase 5)
-- Swipe-to-play time with and without preloading (Phase 5)
+- Swipe-to-play and TTFF on a real iPhone (Safari and Chrome, native HLS)
 - Feed API p95 under load, k6 (Phase 7)
+
+## SDK size
+
+`tsc` output, unminified, all modules included (2026-11-01):
+
+| Package | Raw | gzip |
+| --- | --- | --- |
+| `@reelplane/sdk-core` (player, preloading, metrics and the resumable uploader) | 38.1 KB | 10.8 KB |
+| `@reelplane/sdk-react` (`<ReelFeed />` + styles) | 14.7 KB | 4.9 KB |
+
+hls.js is not included: it is a dynamic `import()`, so bundlers split it into a separate chunk,
+loaded on first playback and never on Apple devices (native HLS). Both packages are
+`sideEffects: false` and tree-shake: an app that only uses `uploadVideo` doesn't ship the player.
