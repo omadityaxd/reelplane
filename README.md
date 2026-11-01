@@ -17,6 +17,14 @@ pnpm check         # lint + typecheck + tests (tests need `infra:up`)
 pnpm --filter @reelplane/web dev   # http://localhost:3000/v1/project
 ```
 
+The transcoding worker (Go + FFmpeg), natively or in Docker:
+
+```bash
+pnpm worker:dev    # needs Go and FFmpeg on PATH
+pnpm worker:up     # or: build and run the Docker image next to the local stack
+pnpm worker:chaos  # kill workers at random while N jobs run; checks exactly-once
+```
+
 Run the storage contract against the real local S3 server:
 
 ```bash

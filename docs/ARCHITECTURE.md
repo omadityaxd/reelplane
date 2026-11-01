@@ -2,6 +2,128 @@
 
 This document grows phase by phase. Each decision lists the trade-off it accepts.
 
+## The job queue and transcoding worker (Phase 4)
+
+Code: [`services/worker`](../services/worker). The queue is Postgres
+([`internal/queue`](../services/worker/internal/queue/queue.go)); the worker is a single Go
+binary that shells out to FFmpeg.
+
+### Why Postgres as the queue (not Kafka, SQS or Redis)
+
+- **Transactional enqueue.** The job row is inserted in the _same transaction_ that moves the
+  video `uploading → queued`. With an external queue you either enqueue before commit (and can
+  run a job for a video that rolled back) or after commit (and lose the job if the process dies
+  in between), which pushes you towards an outbox anyway.
+- **One system to run.** No extra free tier to find, no second source of truth to reconcile,
+  and the job state is queryable with SQL for the dashboard.
+- **Enough throughput.** A transcode takes seconds; even 1,000 jobs/minute is ~17 claims/s,
+  trivial for `SKIP LOCKED`. Partial indexes keep the claim and reaper queries on the small
+  set of live rows however much history accumulates.
+- **Trade-off:** polling (2 s, backing off to 10 s when idle, jittered) instead of push, and a
+  queue that shares fate with the main database. At 1,000× scale see the section below.
+
+### Claim, lease, heartbeat, fencing
+
+```
+claim:      UPDATE jobs SET state='running', attempts=attempts+1, lease_owner=$me,
+                            lease_expires_at=now()+2min
+            WHERE id = (SELECT id FROM jobs WHERE state='queued' AND run_after<=now()
+                        ORDER BY run_after LIMIT 1 FOR UPDATE SKIP LOCKED)
+heartbeat:  every 20 s, extend the lease  ... WHERE id=$job AND lease_owner=$me AND state='running'
+complete:   SELECT ... FOR UPDATE; abort unless lease_owner=$me AND state='running'; then publish
+reaper:     any worker requeues (or dead-letters) running jobs whose lease expired
+```
+
+- `SKIP LOCKED` lets any number of workers claim at once without blocking each other or ever
+  receiving the same row. A test runs 8 concurrent claimers over 60 jobs and checks each job
+  was claimed exactly once.
+- **Delivery is at-least-once:** a job whose worker dies is reclaimed when its lease expires.
+  **Results are exactly-once:** every write after the claim (heartbeat, complete, fail,
+  release) is _fenced_ on `lease_owner = me AND state = 'running'`. A worker that was paused
+  past its lease and then wakes up (a "zombie") gets `ErrLeaseLost` from its next heartbeat,
+  cancels FFmpeg, and cannot commit anything even if it finishes first.
+- The heartbeat interval must be at most a third of the lease (enforced at startup), so a
+  healthy worker survives two missed heartbeats.
+
+### Idempotent processing: unique prefix per attempt, atomic publish
+
+Each attempt writes to its own prefix, `media/<project>/<video>/<job>-a<attempt>/`, and only
+becomes visible when `Complete` points the video row at that prefix. That single fenced
+`UPDATE` is the publish. So:
+
+- a viewer can never see a half-written rendition (the row still points at nothing, or at the
+  previous complete set);
+- two attempts can never overwrite each other's segments, which a shared "final" folder could
+  not guarantee once a zombie is involved;
+- every published file is immutable and served with `Cache-Control: immutable`, playlists
+  included.
+
+**Cleanup is transactional too.** When the database reaps, fails or releases an attempt, the
+same transaction records that attempt's prefix in `storage_garbage`. Workers sweep it with
+`SKIP LOCKED` after a grace delay (10 min by default; enough for a zombie to notice it lost its
+lease), and failed deletions are retried with backoff. The first chaos run used best-effort
+cleanup by the winning worker. It left **46 orphaned objects**, because the winner itself was
+sometimes killed between commit and cleanup. With the garbage table, every run since has
+reported **0**.
+
+### Retries, dead letters, shutdown
+
+- **Transient failures** (FFmpeg crash, storage timeout, lost worker) retry with exponential
+  backoff and full jitter (10 s base, 10 min cap) up to `max_attempts` (5).
+- **After that, and for invalid input** (no video stream, a still image, over 60 s), the job
+  goes to `dead` with `last_error` kept. The video becomes `failed` with a reason, and a
+  `video.failed` webhook row is written in the same transaction (an outbox).
+- **SIGTERM** stops claiming. The current job gets 20 s to finish; if it doesn't, it is released
+  back to the queue _without_ spending an attempt. Compose's `stop_grace_period` is 30 s.
+- **Hard kills** (OOM, `docker kill`, the chaos test) cannot leave FFmpeg running: on Linux each
+  child gets `PR_SET_PDEATHSIG=SIGKILL`; on Windows children join a Job Object with
+  `KILL_ON_JOB_CLOSE`, which the OS closes when the worker dies.
+
+### Transcoding
+
+- **Probe first:** ffprobe gives duration, streams, frame rate and the display matrix. Phones
+  store portrait video as rotated landscape (e.g. 1920x1080 at −90°), so the ladder is planned
+  from the _display_ size, and FFmpeg's autorotate feeds upright frames to the scaler. A test
+  feeds a 90°-rotated clip and checks the renditions come out portrait.
+- **Ladder by short side** (works for 9:16 and 16:9): 240p 400 kbps, 480p 1 Mbps, 720p
+  2.5 Mbps, 1080p 4.5 Mbps (only when the source is that big), capped VBR at +10%. It never
+  upscales; a source smaller than 240p gets one rendition at its own size.
+- **H.264 + AAC** for maximum compatibility: Main profile on the small rungs, High above.
+- **≤30 fps constant rate:** variable-frame-rate phone clips are converted to CFR, and 60 fps is
+  halved. That halves encode cost for no visible gain at these sizes.
+- **One FFmpeg pass:** decode once, `split` into every rung, write CMAF/fMP4 HLS. A keyframe is
+  forced exactly every 2 s (`-force_key_frames`, `-sc_threshold 0`), so segments line up across
+  renditions for ABR switching.
+- **Why 2 s segments:** a short video's first segment arrives fast, preloading the next reels
+  costs ~2 s of each, and ABR can adapt often. The cost is more requests and playlist entries
+  than 6 s segments, which is negligible for ≤60 s clips.
+- **Stills:** a 720px poster from ~1 s in (first frames are often black), three thumbnails, and
+  a blurred 16px JPEG inlined as a `data:` URI (~400 bytes) so the feed paints instantly.
+- **Preset:** `veryfast` by default to keep free CPUs usable; configurable with `FFMPEG_PRESET`.
+
+### Proving it: the chaos test
+
+`pnpm worker:chaos` runs N jobs on a fleet of real worker processes and hard-kills a random
+worker every 0.8–4 s, restarting it. It then checks, from Postgres and storage:
+
+- every job succeeded;
+- every video completed exactly once (exactly one `job.succeeded` and one `video.ready` event);
+- no video has two jobs;
+- every published playlist's init and media segments exist;
+- no orphaned objects remain.
+
+Results are in [BENCHMARKS.md](BENCHMARKS.md).
+
+### What changes at 1,000× scale
+
+- **Queue:** move job hot state to a dedicated Postgres (or a partitioned `jobs` table); claim in
+  batches; swap polling for `LISTEN/NOTIFY` wake-ups. Past ~10k claims/s, a log-based queue
+  (Kafka/Redpanda) or SQS with a transactional outbox becomes worth its operational cost.
+- **Workers:** autoscale on queue depth; GPU or hardware encoders (NVENC/QSV) for throughput;
+  split large sources into GOP-aligned chunks and transcode them in parallel.
+- **Storage:** a CDN in front of the bucket (already supported via `STORAGE_PUBLIC_BASE_URL`),
+  plus lifecycle rules for originals.
+
 ## The upload path (Phase 3)
 
 ```mermaid

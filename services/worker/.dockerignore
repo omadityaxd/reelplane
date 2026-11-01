@@ -1,0 +1,4 @@
+bin/
+*.log
+*_test.go
+cmd/chaos/

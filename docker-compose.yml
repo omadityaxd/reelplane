@@ -51,6 +51,29 @@ services:
       retries: 30
     restart: unless-stopped
 
+  # The transcoding worker. Opt-in (needs a build): `pnpm worker:up`.
+  # Or run it natively with `pnpm worker:dev` (Go + FFmpeg on PATH).
+  worker:
+    profiles: ["worker"]
+    build: ./services/worker
+    environment:
+      DATABASE_URL: postgres://reelplane:reelplane@postgres:5432/reelplane
+      STORAGE_PROVIDER: local
+      STORAGE_ENDPOINT: http://storage:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: reelplane
+      STORAGE_ACCESS_KEY_ID: reelplane
+      STORAGE_SECRET_ACCESS_KEY: reelplane-dev-secret
+      STORAGE_FORCE_PATH_STYLE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+    # Longer than WORKER_SHUTDOWN_GRACE (20s), so SIGTERM can finish or release the job.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   storage-data:

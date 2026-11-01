@@ -1,0 +1,149 @@
+// Package config reads the worker's settings from environment variables. Storage variables
+// use the same STORAGE_* names as the TypeScript API, so one .env configures both.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// LocalDatabaseURL matches docker-compose.yml, so the worker runs with no configuration.
+const LocalDatabaseURL = "postgres://reelplane:reelplane@localhost:54320/reelplane"
+
+type Storage struct {
+	Provider        string
+	Endpoint        string
+	Region          string
+	Bucket          string
+	AccessKeyID     string
+	SecretAccessKey string
+	ForcePathStyle  bool
+}
+
+type Config struct {
+	DatabaseURL string
+	Storage     Storage
+	WorkerID    string
+
+	LeaseDuration     time.Duration
+	HeartbeatInterval time.Duration
+	PollInterval      time.Duration
+	ShutdownGrace     time.Duration
+	GarbageDelay      time.Duration
+	RetryBase         time.Duration
+	RetryMax          time.Duration
+
+	MaxDuration time.Duration
+	Preset      string
+	FFmpegPath  string
+	FFprobePath string
+	TempDir     string
+	LogFormat   string
+}
+
+type getenv func(string) string
+
+// Load reads the configuration from the process environment.
+func Load() (Config, error) { return load(os.Getenv) }
+
+func load(env getenv) (Config, error) {
+	var errs []error
+	duration := func(key string, fallback time.Duration) time.Duration {
+		raw := env(key)
+		if raw == "" {
+			return fallback
+		}
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			errs = append(errs, fmt.Errorf("%s: expected a positive duration like 30s, got %q", key, raw))
+			return fallback
+		}
+		return value
+	}
+
+	cfg := Config{
+		DatabaseURL:       firstNonEmpty(env("DATABASE_URL"), LocalDatabaseURL),
+		Storage:           loadStorage(env),
+		WorkerID:          firstNonEmpty(env("WORKER_ID"), defaultWorkerID()),
+		LeaseDuration:     duration("WORKER_LEASE_DURATION", 2*time.Minute),
+		HeartbeatInterval: duration("WORKER_HEARTBEAT_INTERVAL", 20*time.Second),
+		PollInterval:      duration("WORKER_POLL_INTERVAL", 2*time.Second),
+		ShutdownGrace:     duration("WORKER_SHUTDOWN_GRACE", 20*time.Second),
+		GarbageDelay:      duration("WORKER_GARBAGE_DELAY", 10*time.Minute),
+		RetryBase:         duration("WORKER_RETRY_BASE", 10*time.Second),
+		RetryMax:          duration("WORKER_RETRY_MAX", 10*time.Minute),
+		MaxDuration:       duration("MAX_VIDEO_DURATION", 60*time.Second),
+		Preset:            firstNonEmpty(env("FFMPEG_PRESET"), "veryfast"),
+		FFmpegPath:        firstNonEmpty(env("FFMPEG_PATH"), "ffmpeg"),
+		FFprobePath:       firstNonEmpty(env("FFPROBE_PATH"), "ffprobe"),
+		TempDir:           firstNonEmpty(env("WORKER_TEMP_DIR"), os.TempDir()),
+		LogFormat:         firstNonEmpty(env("LOG_FORMAT"), "text"),
+	}
+
+	// A heartbeat must land well inside the lease, or a healthy worker loses its job.
+	if cfg.HeartbeatInterval*3 > cfg.LeaseDuration {
+		errs = append(errs, fmt.Errorf(
+			"WORKER_HEARTBEAT_INTERVAL (%s) must be at most a third of WORKER_LEASE_DURATION (%s)",
+			cfg.HeartbeatInterval, cfg.LeaseDuration))
+	}
+	if !validPresets[cfg.Preset] {
+		errs = append(errs, fmt.Errorf("FFMPEG_PRESET: unknown x264 preset %q", cfg.Preset))
+	}
+	return cfg, errors.Join(errs...)
+}
+
+var validPresets = map[string]bool{
+	"ultrafast": true, "superfast": true, "veryfast": true, "faster": true, "fast": true,
+	"medium": true, "slow": true, "slower": true, "veryslow": true,
+}
+
+// loadStorage mirrors packages/storage/src/config.ts: with no STORAGE_* set at all, it
+// targets the local RustFS container.
+func loadStorage(env getenv) Storage {
+	if env("STORAGE_PROVIDER") == "" && env("STORAGE_ENDPOINT") == "" {
+		return Storage{
+			Provider:        "local",
+			Endpoint:        "http://localhost:9000",
+			Region:          "us-east-1",
+			Bucket:          "reelplane",
+			AccessKeyID:     "reelplane",
+			SecretAccessKey: "reelplane-dev-secret",
+			ForcePathStyle:  true,
+		}
+	}
+	provider := firstNonEmpty(env("STORAGE_PROVIDER"), "s3")
+	pathStyle, err := strconv.ParseBool(env("STORAGE_FORCE_PATH_STYLE"))
+	if err != nil {
+		pathStyle = provider == "local"
+	}
+	return Storage{
+		Provider:        provider,
+		Endpoint:        strings.TrimRight(env("STORAGE_ENDPOINT"), "/"),
+		Region:          env("STORAGE_REGION"),
+		Bucket:          env("STORAGE_BUCKET"),
+		AccessKeyID:     env("STORAGE_ACCESS_KEY_ID"),
+		SecretAccessKey: env("STORAGE_SECRET_ACCESS_KEY"),
+		ForcePathStyle:  pathStyle,
+	}
+}
+
+func defaultWorkerID() string {
+	host, err := os.Hostname()
+	if err != nil {
+		host = "worker"
+	}
+	return fmt.Sprintf("%s-%d", host, os.Getpid())
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}

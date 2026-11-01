@@ -14,13 +14,19 @@
     "test": "pnpm -r --if-present test",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm worker:lint && pnpm worker:test",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
     "infra:init": "tsx scripts/init-storage.ts && tsx scripts/migrate.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "services": "tsx scripts/doctor.ts"
+    "services": "tsx scripts/doctor.ts",
+    "worker:dev": "cd services/worker && go run ./cmd/worker",
+    "worker:build": "cd services/worker && go build -o bin/ ./cmd/worker",
+    "worker:lint": "node scripts/check-gofmt.mjs && cd services/worker && go vet ./...",
+    "worker:test": "cd services/worker && go test ./...",
+    "worker:chaos": "pnpm worker:build && cd services/worker && go run ./cmd/chaos",
+    "worker:up": "docker compose --profile worker up -d --build worker"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

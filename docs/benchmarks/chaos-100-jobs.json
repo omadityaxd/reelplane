@@ -1,0 +1,42 @@
+{
+  "passed": true,
+  "violations": null,
+  "config": {
+    "clip": "8s",
+    "heartbeat": "1s",
+    "jobs": 100,
+    "killEvery": "800ms-2.5s",
+    "lease": "4s",
+    "maxAttempts": 25,
+    "preset": "veryfast",
+    "workers": 4
+  },
+  "seed": 7,
+  "elapsedNs": 108505685900,
+  "jobs": 100,
+  "jobStates": {
+    "succeeded": 100
+  },
+  "videosReady": 100,
+  "videosWithDuplicateJobs": 0,
+  "videosCompletedExactlyOnce": 100,
+  "videosWithFullLadder": 100,
+  "videosWithCompletePlaylistsInStorage": 100,
+  "referencedObjectsMissing": 0,
+  "orphanedObjectsFromLosingAttempts": 0,
+  "kills": 64,
+  "killsWhileHoldingAJob": 59,
+  "jobsRequeuedAfterLeaseExpiry": 59,
+  "attemptHistogram": {
+    "1": 64,
+    "2": 21,
+    "3": 8,
+    "4": 6,
+    "5": 1
+  },
+  "zombieCompletionsRejected": 0,
+  "jobsAbandonedOnLeaseLoss": 0,
+  "meanTranscodeSpeedRealtime": 7.236358306188566,
+  "ranAt": "2026-11-01T06:11:34Z",
+  "elapsedSeconds": 108.5056859
+}
