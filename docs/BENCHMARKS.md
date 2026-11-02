@@ -65,10 +65,10 @@ everything: `next start`, RustFS and Postgres, started with `pnpm phone`. No thr
 CDN, so these are local-network numbers, not mobile-network ones. Measured 2026-11-02 by the
 project author, on the same bench videos as the Chrome run above.
 
-| Mode                     | Swipes                    | Swipe-to-play                                  |
-| ------------------------ | ------------------------- | ---------------------------------------------- |
-| With preloading + warm   | 25/25, 0 timeouts         | p50 **69 ms** · p95 **389 ms**                 |
-| Without preloading       | **partial run: 2/25**     | about 1.7–2.8 s per swipe (full run to follow) |
+| Mode                   | Swipes                | Swipe-to-play                                  |
+| ---------------------- | --------------------- | ---------------------------------------------- |
+| With preloading + warm | 25/25, 0 timeouts     | p50 **69 ms** · p95 **389 ms**                 |
+| Without preloading     | **partial run: 2/25** | about 1.7–2.8 s per swipe (full run to follow) |
 
 **Playback on the same iPhone** (`?debug=1`, sound on, after the warm-up mute fix): 0 stalls on 3
 of 4 videos and one 0.1 s stall on the fourth, 0 dropped frames, buffer held 6–12 s ahead.
