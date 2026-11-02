@@ -68,12 +68,28 @@ export function listWebhookEndpoints(pool: Pool, projectId: string): Promise<Web
   });
 }
 
+/** Endpoints per project; enforced under a lock on the project row, so it holds under races. */
+export const MAX_WEBHOOK_ENDPOINTS = 10;
+
+export class TooManyWebhookEndpointsError extends Error {
+  override readonly name = "TooManyWebhookEndpointsError";
+}
+
 export function createWebhookEndpoint(
   pool: Pool,
   projectId: string,
   input: { url: string; events: readonly WebhookEvent[] },
 ): Promise<WebhookEndpoint> {
   return withTenant(pool, { projectId }, async (client) => {
+    await client.query("select 1 from reelplane.projects where id = $1 for update", [projectId]);
+    const { rows: count } = await client.query<{ n: number }>(
+      "select count(*)::int as n from reelplane.webhook_endpoints",
+    );
+    if ((count[0]?.n ?? 0) >= MAX_WEBHOOK_ENDPOINTS) {
+      throw new TooManyWebhookEndpointsError(
+        `A project can have at most ${MAX_WEBHOOK_ENDPOINTS} webhook endpoints.`,
+      );
+    }
     const { rows } = await client.query<EndpointRow>(
       `insert into reelplane.webhook_endpoints (project_id, url, secret, events)
        values ($1, $2, $3, $4) returning ${ENDPOINT_COLUMNS}`,

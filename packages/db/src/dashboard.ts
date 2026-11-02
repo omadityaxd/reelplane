@@ -228,3 +228,42 @@ export function dailyPlayback(pool: Pool, projectId: string, days = 14): Promise
     }));
   });
 }
+
+export interface RenditionSummary {
+  name: string;
+  width: number;
+  height: number;
+  bitrateKbps: number;
+  fps: number | null;
+  codecs: string;
+}
+
+/** The ladder a video was published with, smallest first. */
+export function listRenditions(
+  pool: Pool,
+  projectId: string,
+  videoId: string,
+): Promise<RenditionSummary[]> {
+  return withTenant(pool, { projectId }, async (client) => {
+    const { rows } = await client.query<{
+      name: string;
+      width: number;
+      height: number;
+      bitrate_kbps: number;
+      fps: string | null;
+      codecs: string;
+    }>(
+      `select name, width, height, bitrate_kbps, fps, codecs from reelplane.renditions
+        where video_id = $1 order by least(width, height), bitrate_kbps`,
+      [videoId],
+    );
+    return rows.map((row) => ({
+      name: row.name,
+      width: row.width,
+      height: row.height,
+      bitrateKbps: row.bitrate_kbps,
+      fps: row.fps === null ? null : Number(row.fps),
+      codecs: row.codecs,
+    }));
+  });
+}

@@ -63,6 +63,7 @@ async function authenticateWithUploadToken(
   options: AuthOptions,
   deps: AuthDeps,
   origin: string | null,
+  selfOrigin: string,
 ): Promise<AuthContext> {
   if (!options.allow.includes("upload_token") || !options.videoId) {
     throw new ApiError("forbidden", "Upload tokens can only be used for their own upload.");
@@ -74,7 +75,8 @@ async function authenticateWithUploadToken(
     hashApiKey(token, deps.pepper),
   );
   if (!match) throw new ApiError("unauthorized", "Invalid or expired upload token.");
-  checkBrowserOrigin(match.allowedOrigins, origin, "upload");
+  // The Reelplane app itself (the dashboard's upload button) may always use a token it made.
+  checkBrowserOrigin([...match.allowedOrigins, selfOrigin], origin, "upload");
   return { projectId: match.projectId, credential: "upload_token", keyId: null, origin };
 }
 
@@ -91,7 +93,8 @@ export async function authenticateRequest(
   }
   const origin = request.headers.get("origin");
   if (isUploadToken(credential)) {
-    return authenticateWithUploadToken(credential, options, deps, origin);
+    const selfOrigin = new URL(request.url).origin;
+    return authenticateWithUploadToken(credential, options, deps, origin, selfOrigin);
   }
 
   const key = await authenticateApiKey(deps.pool, credential, deps.pepper);

@@ -2,6 +2,47 @@
 
 This document grows phase by phase. Each decision lists the trade-off it accepts.
 
+## Dashboard (Phase 6)
+
+Server-rendered Next.js pages under `/dashboard`, with server actions for every change. It reads
+the same database through the same RLS roles as the API: there is no admin connection.
+
+### Who is signed in
+
+- **Supabase Auth** (email magic link, PKCE) when `NEXT_PUBLIC_SUPABASE_*` are set. Pages call
+  `auth.getUser()`, which asks Supabase to validate the token, rather than trusting the cookie
+  (`getSession()`). `proxy.ts` only refreshes the session cookie; it decides nothing.
+- **Local mode, no sign-in**, only under `next dev` (or `REELPLANE_LOCAL_AUTH=1`) and never on
+  Vercel: you are the local developer who owns the seeded projects. This keeps the brief's
+  "everything runs with no accounts" rule. The trade-off: anyone who can reach a local-mode
+  server has the dashboard, so the flag is documented as laptop-only and tests pin the rules.
+- Otherwise the dashboard is **disabled** and says what to configure.
+
+### Every request re-checks ownership
+
+Server actions are public POST endpoints, and a project id in a URL or a form is just input. So
+every page and every action starts with `requireProject(id)`. It runs as the signed-in user
+(`app.user_id`), where RLS shows only the projects they own, and answers 404 for anyone
+else's project, the same as for one that doesn't exist. Only after that does it switch to the
+project scope (`app.project_id`) to read videos, keys or webhooks. A test reads every action
+file and fails if an exported action doesn't start with that check.
+
+### Uploading from the dashboard
+
+The upload button asks a server action for an upload session, the same one `POST /v1/uploads`
+creates. The browser then uploads straight to storage with the upload token. Upload tokens
+normally work only from a project's allowed origins. They also accept the app's own origin, so
+the dashboard can upload to any project its user owns without listing the dashboard as an
+origin. That is safe because the token is the credential, and only this app's own pages can
+send that Origin header.
+
+### Live processing timeline
+
+The video page renders the audit trail (`video_events`, written by triggers) as a timeline,
+plus the current job's progress. While the video is still uploading, queued or processing,
+it re-renders every 2 s (`router.refresh()`). Polling a server component is simpler than a
+socket, and it stops when the video reaches a final state.
+
 ## Webhooks (Phase 6)
 
 `video.ready`, `video.failed` and `video.deleted`, delivered at least once.

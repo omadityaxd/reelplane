@@ -10,8 +10,10 @@ import {
   listJobs,
   listWebhookDeliveries,
   listWebhookEndpoints,
+  MAX_WEBHOOK_ENDPOINTS,
   redeliverWebhook,
   sendTestWebhook,
+  TooManyWebhookEndpointsError,
   updateWebhookEndpoint,
   videoTimeline,
   withTenant,
@@ -116,6 +118,22 @@ describe("webhook outbox", () => {
     expect(await redeliverWebhook(pool, project.id, test?.id ?? "")).toBe(true);
     const [again] = await listWebhookDeliveries(pool, project.id);
     expect(again).toMatchObject({ state: "pending", attempts: 0 });
+  });
+
+  it("caps endpoints per project, even when created concurrently", async () => {
+    const { project } = await newProject(pool);
+    const results = await Promise.allSettled(
+      Array.from({ length: MAX_WEBHOOK_ENDPOINTS + 5 }, (_, i) =>
+        createWebhookEndpoint(pool, project.id, {
+          url: `https://a.example/${i}`,
+          events: ["video.ready"],
+        }),
+      ),
+    );
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(rejected).toHaveLength(5);
+    for (const r of rejected) expect(r.reason).toBeInstanceOf(TooManyWebhookEndpointsError);
+    expect(await listWebhookEndpoints(pool, project.id)).toHaveLength(MAX_WEBHOOK_ENDPOINTS);
   });
 
   it("rolls the signing secret", async () => {

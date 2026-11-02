@@ -299,7 +299,7 @@ describe("upload sessions: validation, idempotency and access", () => {
     expect(createWithToken.status).toBe(403);
   });
 
-  it("checks an upload token's browser origin against the project", async () => {
+  it("checks an upload token's browser origin against the project (and the app itself)", async () => {
     const { secretKey } = await newProject(pool);
     const session = (
       await body<{ data: Session }>(
@@ -316,6 +316,7 @@ describe("upload sessions: validation, idempotency and access", () => {
         api.ctx(session.upload.videoId),
       );
     expect((await sign(ORIGIN)).status).toBe(200);
+    expect((await sign(API)).status).toBe(200); // the dashboard's upload button: same origin
     expect((await sign("https://evil.example")).status).toBe(403);
   });
 

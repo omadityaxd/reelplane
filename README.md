@@ -70,6 +70,44 @@ Run the storage contract against the real local S3 server:
 STORAGE_INTEGRATION=1 pnpm --filter @reelplane/storage test
 ```
 
+## Dashboard
+
+`pnpm --filter @reelplane/web dev`, then open http://localhost:3000/dashboard. Locally there is
+no sign-in (you own the seeded projects); with Supabase configured, sign-in is by email magic
+link. Per project:
+
+- **Videos:** upload from the browser, preview, and a live processing timeline per video (every
+  status change and job attempt, from the audit trail), plus the rendition ladder it got.
+- **Jobs:** state, attempts, progress and errors, filterable.
+- **Analytics:** time to first frame p50/p95, rebuffers per view, completion and views, from
+  the player SDK's playback events.
+- **API keys:** create, rotate with a grace period, revoke. Keys are shown once.
+- **Webhooks:** endpoints, signing secrets, a test event, and a delivery log with redelivery.
+
+### Webhooks
+
+`video.ready`, `video.failed` and `video.deleted` are POSTed to your endpoints by the worker,
+signed and retried. Verify them with the SDK:
+
+```ts
+import { verifyWebhook } from "@reelplane/sdk-core";
+
+export async function POST(request: Request) {
+  const event = await verifyWebhook({
+    payload: await request.text(), // the raw body
+    signature: request.headers.get("Reelplane-Signature"),
+    secret: process.env.REELPLANE_WEBHOOK_SECRET!,
+  });
+  if (event.type === "video.ready") {
+    // event.data.video.id is ready; GET /v1/videos/:id for its playback URLs.
+  }
+  return new Response(null, { status: 204 });
+}
+```
+
+Deliveries are at-least-once: dedupe on `event.id`. To try webhooks on your laptop with a
+receiver on localhost, run the worker with `WEBHOOK_ALLOW_PRIVATE_URLS=true`.
+
 ## Layout
 
 ```
