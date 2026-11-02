@@ -25,7 +25,26 @@ pnpm worker:up     # or: build and run the Docker image next to the local stack
 pnpm worker:chaos  # kill workers at random while N jobs run; checks exactly-once
 ```
 
-The demo feed and the swipe-to-play benchmark (needs the worker running):
+### Test on your phone (one command)
+
+```bash
+pnpm phone               # add --skip-build to reuse the last web build
+```
+
+It starts the Docker infra, builds and runs the worker, seeds the demo and bench videos for your
+current Wi-Fi address, builds and serves the web app on `0.0.0.0:3000`, and prints the URLs:
+
+```
+Ready. On your phone (same Wi-Fi as this laptop):
+  Feed:          http://192.168.1.12:3000/?debug=1
+  Bench:         http://192.168.1.12:3000/bench?preload=1  and  ?preload=0
+```
+
+Ctrl+C stops the worker and the web app; `pnpm infra:down` stops Docker. Run it again whenever
+your Wi-Fi address changes. If the phone can't connect, allow Node.js through the Windows
+firewall on private networks.
+
+The same steps by hand (needs the worker running):
 
 ```bash
 pnpm showcase:clips   # cut the CC BY Blender clips (see content/README.md)

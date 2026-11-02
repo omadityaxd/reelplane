@@ -31,7 +31,8 @@
     "showcase:seed": "tsx scripts/seed-showcase.ts",
     "bench:seed": "tsx scripts/seed-showcase.ts --bench",
     "demo": "pnpm --filter @reelplane/web dev:lan",
-    "showcase:reset": "tsx scripts/reset-showcase.ts"
+    "showcase:reset": "tsx scripts/reset-showcase.ts",
+    "phone": "tsx scripts/phone.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
