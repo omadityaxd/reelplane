@@ -58,8 +58,35 @@ seconds after a pause. A video that played moments earlier started in 6–25 ms.
 viewing between swipes (8 swipes), warmed swipe-to-play stayed at p50 44 ms / p95 52 ms, so the
 periodic re-warm works.
 
-**Not yet measured:** iPhone Safari/Chrome (native HLS, WebKit) on a real device: pending the
-retest with `/bench?preload=1|0` and `?debug=1`.
+### On a real iPhone
+
+**Setup:** a real iPhone (iOS, native HLS in WebKit) on home Wi-Fi. The laptop above serves
+everything: `next start`, RustFS and Postgres, started with `pnpm phone`. No throttling and no
+CDN, so these are local-network numbers, not mobile-network ones. Measured 2026-11-02 by the
+project author, on the same bench videos as the Chrome run above.
+
+| Mode                     | Swipes                    | Swipe-to-play                                  |
+| ------------------------ | ------------------------- | ---------------------------------------------- |
+| With preloading + warm   | 25/25, 0 timeouts         | p50 **69 ms** · p95 **389 ms**                 |
+| Without preloading       | **partial run: 2/25**     | about 1.7–2.8 s per swipe (full run to follow) |
+
+**Playback on the same iPhone** (`?debug=1`, sound on, after the warm-up mute fix): 0 stalls on 3
+of 4 videos and one 0.1 s stall on the fourth, 0 dropped frames, buffer held 6–12 s ahead.
+
+**Why p95 is 5.6× p50 on the iPhone (vs 2.1× in Chrome).** With 25 swipes, p95 is the
+second-slowest swipe, so 389 ms says at least two swipes took 389 ms or more; half took 69 ms
+or less. The iPhone run recorded only p50/p95, so the two slow swipes can't be attributed
+yet. In the latest Chrome run the slowest swipe was the first (150 ms, while the page was still
+setting up the other preloads); in the run before, it was swipe 24 (130 ms). The likely causes on iOS, none measured yet:
+
+- the target video was not warmed yet;
+- the target was not buffered far enough (iOS decides how much a paused `<video>` loads);
+- WebKit set up a new player for the video entering N+2 at the same moment as the swipe.
+
+`/bench` now records the target video's state at each swipe (`readyState`, seconds buffered,
+whether the warmer had played it). When a run finishes it shows the 3 slowest swipes on screen.
+The next iPhone run will say which cause it is. No change to the player until then: an
+unmeasured "fix" could just as well make it worse.
 
 ### What warming and preloading cost
 
@@ -196,7 +223,8 @@ together, `-preset veryfast`, 720x1280 30 fps source with AAC audio.
 
 These will be filled in by the phases that build them:
 
-- Swipe-to-play and TTFF on a real iPhone (Safari and Chrome, native HLS)
+- Swipe-to-play without preloading on the iPhone: full 25-swipe run (only 2/25 so far)
+- The cause of the iPhone p95 outliers (from the slowest-swipe readout on `/bench`)
 - Feed API p95 under load, k6 (Phase 7)
 
 ## SDK size

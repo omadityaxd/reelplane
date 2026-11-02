@@ -16,7 +16,36 @@ interface Sample {
   swipeToPlayMs: number | null;
   ttffMs: number | null;
   preloaded: boolean | null;
+  /** The target video at the moment of the swipe: why a slow swipe was slow. */
+  atSwipe: TargetState | null;
 }
+
+interface TargetState {
+  /** HTMLMediaElement.readyState (4 = enough data to play through). */
+  readyState: number;
+  /** Seconds buffered from its current position. */
+  bufferedAheadS: number;
+  /** Whether it had played before (i.e. the warmer got to it). */
+  warmed: boolean;
+}
+
+/** Snapshot of the pool element serving `index` (the swipe target), if it has one. */
+function targetState(index: number): TargetState | null {
+  const video = document.querySelector<HTMLVideoElement>(`video.rp-video[data-index="${index}"]`);
+  if (!video) return null;
+  let bufferedAheadS = 0;
+  for (let i = 0; i < video.buffered.length; i += 1) {
+    if (video.buffered.start(i) <= video.currentTime && video.currentTime <= video.buffered.end(i))
+      bufferedAheadS = video.buffered.end(i) - video.currentTime;
+  }
+  return {
+    readyState: video.readyState,
+    bufferedAheadS: Math.round(bufferedAheadS * 10) / 10,
+    warmed: video.played.length > 0,
+  };
+}
+
+const SLOWEST_SHOWN = 3;
 
 export interface BenchResult {
   mode: "preload" | "no-preload";
@@ -109,7 +138,12 @@ function Bench({
     summarise(mode, config.swipes, [], false),
   );
   const samples = useRef<Sample[]>([]);
-  const pending = useRef<{ index: number; swipedAt: number; timer: number } | null>(null);
+  const pending = useRef<{
+    index: number;
+    swipedAt: number;
+    timer: number;
+    atSwipe: TargetState | null;
+  } | null>(null);
   const activeIndex = useRef(0);
   const finished = useRef(false);
   const initial = useRef<InitialTiming>({ ttffMs: null, pageLoadMs: null });
@@ -139,12 +173,13 @@ function Bench({
     const scroller = document.querySelector<HTMLElement>(".rp-scroller");
     if (!scroller) return;
     const index = activeIndex.current + 1;
+    const atSwipe = targetState(index);
     const timer = window.setTimeout(() => {
       if (pending.current?.index !== index) return;
       pending.current = null;
-      if (!record({ index, swipeToPlayMs: null, ttffMs: null, preloaded: null })) swipe();
+      if (!record({ index, swipeToPlayMs: null, ttffMs: null, preloaded: null, atSwipe })) swipe();
     }, TIMEOUT_MS);
-    pending.current = { index, swipedAt: performance.now(), timer };
+    pending.current = { index, swipedAt: performance.now(), timer, atSwipe };
     scroller.scrollBy({ top: scroller.clientHeight, behavior: "instant" });
   }, [record]);
 
@@ -166,6 +201,7 @@ function Bench({
           swipeToPlayMs: Math.round(paintedAt - current.swipedAt),
           ttffMs: metric.valueMs ?? null,
           preloaded: metric.data?.preloaded === true,
+          atSwipe: current.atSwipe,
         });
         if (done) return;
       }
@@ -210,7 +246,26 @@ function Bench({
         {mode}: {result.samples.length}/{config.swipes} swipes · p50 {result.p50 ?? "–"} ms · p95{" "}
         {result.p95 ?? "–"} ms · timeouts {result.timeouts}
         {result.done ? " · DONE" : ""}
+        {result.done && <SlowestSwipes samples={result.samples} />}
       </output>
     </div>
+  );
+}
+
+/** The slowest swipes and the state of their target at swipe time (readable on a phone). */
+function SlowestSwipes({ samples }: { samples: Sample[] }) {
+  const slowest = [...samples]
+    .sort((a, b) => (b.swipeToPlayMs ?? Infinity) - (a.swipeToPlayMs ?? Infinity))
+    .slice(0, SLOWEST_SHOWN);
+  return (
+    <>
+      {slowest.map((s) => (
+        <div key={s.index}>
+          swipe {s.index}: {s.swipeToPlayMs ?? "timeout"} ms · ready {s.atSwipe?.readyState ?? "–"}{" "}
+          · buffered {s.atSwipe?.bufferedAheadS ?? "–"} s · warmed{" "}
+          {s.atSwipe ? (s.atSwipe.warmed ? "yes" : "no") : "–"}
+        </div>
+      ))}
+    </>
   );
 }

@@ -191,6 +191,7 @@ export function ReelFeed(props: ReelFeedProps) {
                 }}
                 className="rp-video"
                 data-idle={index === null}
+                data-index={index ?? undefined}
                 // Percentages of the track, which is `items.length` viewports tall.
                 style={{
                   top: `${((index ?? 0) * 100) / Math.max(items.length, 1)}%`,
