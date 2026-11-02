@@ -10,6 +10,18 @@ export {
   rotateApiKey,
 } from "./api-keys.ts";
 export {
+  type DailyPlayback,
+  dailyPlayback,
+  deleteVideo,
+  getOwnedProject,
+  type JobState,
+  type JobSummary,
+  listJobs,
+  renameProject,
+  type TimelineEvent,
+  videoTimeline,
+} from "./dashboard.ts";
+export {
   COMPLETION_THRESHOLD,
   type PlaybackEventInput,
   type PlaybackEventType,
@@ -77,3 +89,19 @@ export {
   type VideoPage,
   type VideoStatus,
 } from "./videos.ts";
+export {
+  createWebhookEndpoint,
+  type DeliveryState,
+  deleteWebhookEndpoint,
+  generateWebhookSecret,
+  getWebhookSecret,
+  listWebhookDeliveries,
+  listWebhookEndpoints,
+  redeliverWebhook,
+  sendTestWebhook,
+  updateWebhookEndpoint,
+  WEBHOOK_EVENTS,
+  type WebhookDelivery,
+  type WebhookEndpoint,
+  type WebhookEvent,
+} from "./webhooks.ts";

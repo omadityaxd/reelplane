@@ -44,6 +44,12 @@ export {
 } from "./upload.ts";
 export { Warmer, warmingAllowed } from "./warmer.ts";
 export {
+  type VerifyWebhookOptions,
+  verifyWebhook,
+  type WebhookEvent,
+  WebhookVerificationError,
+} from "./webhooks.ts";
+export {
   assignSlots,
   DEFAULT_WINDOW,
   planWindow,

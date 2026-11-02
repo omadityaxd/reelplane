@@ -37,6 +37,15 @@ type Config struct {
 	RetryBase         time.Duration
 	RetryMax          time.Duration
 
+	// Webhook deliveries (see internal/webhooks).
+	WebhookTimeout     time.Duration
+	WebhookMaxAttempts int
+	WebhookRetryBase   time.Duration
+	WebhookRetryMax    time.Duration
+	// WebhookAllowPrivate lets endpoints resolve to private/loopback addresses: for local
+	// testing only (a receiver on localhost). Off by default, which blocks SSRF.
+	WebhookAllowPrivate bool
+
 	MaxDuration time.Duration
 	Preset      string
 	FFmpegPath  string
@@ -76,12 +85,32 @@ func load(env getenv) (Config, error) {
 		GarbageDelay:      duration("WORKER_GARBAGE_DELAY", 10*time.Minute),
 		RetryBase:         duration("WORKER_RETRY_BASE", 10*time.Second),
 		RetryMax:          duration("WORKER_RETRY_MAX", 10*time.Minute),
+		WebhookTimeout:    duration("WEBHOOK_TIMEOUT", 10*time.Second),
+		WebhookRetryBase:  duration("WEBHOOK_RETRY_BASE", 30*time.Second),
+		WebhookRetryMax:   duration("WEBHOOK_RETRY_MAX", time.Hour),
 		MaxDuration:       duration("MAX_VIDEO_DURATION", 60*time.Second),
 		Preset:            firstNonEmpty(env("FFMPEG_PRESET"), "veryfast"),
 		FFmpegPath:        firstNonEmpty(env("FFMPEG_PATH"), "ffmpeg"),
 		FFprobePath:       firstNonEmpty(env("FFPROBE_PATH"), "ffprobe"),
 		TempDir:           firstNonEmpty(env("WORKER_TEMP_DIR"), os.TempDir()),
 		LogFormat:         firstNonEmpty(env("LOG_FORMAT"), "text"),
+	}
+
+	cfg.WebhookMaxAttempts = 10
+	if raw := env("WEBHOOK_MAX_ATTEMPTS"); raw != "" {
+		attempts, err := strconv.Atoi(raw)
+		if err != nil || attempts < 1 {
+			errs = append(errs, fmt.Errorf("WEBHOOK_MAX_ATTEMPTS: expected a positive integer, got %q", raw))
+		} else {
+			cfg.WebhookMaxAttempts = attempts
+		}
+	}
+	if raw := env("WEBHOOK_ALLOW_PRIVATE_URLS"); raw != "" {
+		allow, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("WEBHOOK_ALLOW_PRIVATE_URLS: expected true or false, got %q", raw))
+		}
+		cfg.WebhookAllowPrivate = allow
 	}
 
 	// A heartbeat must land well inside the lease, or a healthy worker loses its job.

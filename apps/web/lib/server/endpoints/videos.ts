@@ -1,4 +1,4 @@
-import { getProject, getVideo, listVideos, type VideoStatus } from "@reelplane/db";
+import { deleteVideo, getProject, getVideo, listVideos, type VideoStatus } from "@reelplane/db";
 import { z } from "zod";
 import { json } from "../api-route.ts";
 import { endpoint } from "../endpoint.ts";
@@ -64,3 +64,18 @@ export const getProjectVideo = endpoint({ allow: ["secret"] }, async ({ auth, de
   if (!video || video.status === "deleted") throw new ApiError("not_found", "Video not found.");
   return json({ data: serializeVideo(video, deps.storage) });
 });
+
+/**
+ * DELETE /v1/videos/:id — deletes a video at any stage: it leaves feeds at once, a queued job is
+ * cancelled, `video.deleted` is sent to webhooks, and its stored files are removed by the
+ * worker shortly after. Deleting it again answers 404.
+ */
+export const deleteProjectVideo = endpoint(
+  { allow: ["secret"] },
+  async ({ auth, deps, params }) => {
+    const id = params.id ?? "";
+    const previous = UUID.test(id) ? await deleteVideo(deps.pool, auth.projectId, id) : null;
+    if (!previous) throw new ApiError("not_found", "Video not found.");
+    return json({ data: { id, status: "deleted", previousStatus: previous } });
+  },
+);

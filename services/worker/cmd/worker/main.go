@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/omadityashukla/reelplane/services/worker/internal/pipeline"
 	"github.com/omadityashukla/reelplane/services/worker/internal/queue"
 	"github.com/omadityashukla/reelplane/services/worker/internal/storage"
+	"github.com/omadityashukla/reelplane/services/worker/internal/webhooks"
 	"github.com/omadityashukla/reelplane/services/worker/internal/worker"
 )
 
@@ -44,7 +46,7 @@ func run() error {
 
 	connect, done := context.WithTimeout(stop, 30*time.Second)
 	defer done()
-	pool, err := queue.OpenPool(connect, cfg.DatabaseURL, 4)
+	pool, err := queue.OpenPool(connect, cfg.DatabaseURL, 8) // jobs + up to 8 webhook sends
 	if err != nil {
 		return err
 	}
@@ -67,8 +69,20 @@ func run() error {
 		PollInterval:      cfg.PollInterval,
 		ShutdownGrace:     cfg.ShutdownGrace,
 	}, log)
+	hooks := webhooks.New(pool, webhooks.Options{
+		Client:       webhooks.NewClient(cfg.WebhookTimeout, cfg.WebhookAllowPrivate),
+		Backoff:      queue.Backoff{Base: cfg.WebhookRetryBase, Max: cfg.WebhookRetryMax},
+		MaxAttempts:  cfg.WebhookMaxAttempts,
+		PollInterval: cfg.PollInterval,
+		Lease:        3 * cfg.WebhookTimeout,
+	}, log)
 	log.Info("configuration", "storage", cfg.Storage.Provider, "lease", cfg.LeaseDuration,
-		"heartbeat", cfg.HeartbeatInterval, "preset", cfg.Preset)
+		"heartbeat", cfg.HeartbeatInterval, "preset", cfg.Preset,
+		"webhook_private_urls", cfg.WebhookAllowPrivate)
+
+	var delivering sync.WaitGroup
+	delivering.Go(func() { hooks.Run(stop) })
+	defer delivering.Wait()
 	return w.Run(stop)
 }
 

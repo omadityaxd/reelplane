@@ -77,6 +77,7 @@ export function bindApi(deps: AppDeps) {
     abortUpload: bind(uploads.abortUpload, d),
     listVideos: bind(videos.listProjectVideos, d),
     getVideo: bind(videos.getProjectVideo, d),
+    deleteVideo: bind(videos.deleteProjectVideo, d),
   };
   const ctx = (id?: string): RouteContext => ({ params: Promise.resolve(id ? { id } : {}) });
 

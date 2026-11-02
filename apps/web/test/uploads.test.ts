@@ -345,6 +345,35 @@ describe("upload sessions: validation, idempotency and access", () => {
     expect([sign.status, complete.status, get.status]).toEqual([404, 404, 404]);
   });
 
+  it("deletes a video once, and only with its own project's secret key", async () => {
+    const a = await newProject(pool);
+    const b = await newProject(pool);
+    const id = (
+      await body<{ data: Session }>(
+        await create(a.secretKey.key, { contentType: "video/mp4", sizeBytes: 1000 }),
+      )
+    ).data.upload.videoId;
+    const del = (credential: string) =>
+      api.routes.deleteVideo(
+        apiRequest(`/v1/videos/${id}`, { method: "DELETE", credential }),
+        api.ctx(id),
+      );
+
+    expect((await del(b.secretKey.key)).status).toBe(404);
+    expect((await del(a.publishableKey.key)).status).toBe(403);
+    const first = await del(a.secretKey.key);
+    expect(first.status).toBe(200);
+    expect(await body(first)).toEqual({
+      data: { id, status: "deleted", previousStatus: "uploading" },
+    });
+    expect((await del(a.secretKey.key)).status).toBe(404);
+    const get = await api.routes.getVideo(
+      apiRequest(`/v1/videos/${id}`, { method: "GET", credential: a.secretKey.key }),
+      api.ctx(id),
+    );
+    expect(get.status).toBe(404);
+  });
+
   it("aborts an upload: storage parts are freed and the token stops working", async () => {
     const { secretKey } = await newProject(pool);
     const session = (

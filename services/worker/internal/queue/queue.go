@@ -273,7 +273,7 @@ func (q *Queue) fence(ctx context.Context, tx pgx.Tx, job *Job) error {
 }
 
 // Complete publishes a successful transcode: job succeeded, renditions replaced, video ready
-// and pointing at result.Prefix, and a video.ready webhook queued, all in one transaction.
+// and pointing at result.Prefix (which queues the video.ready webhook), all in one transaction.
 // It returns published=false if the video was deleted while it was being processed.
 func (q *Queue) Complete(ctx context.Context, job *Job, result Result) (published bool, err error) {
 	metrics, err := json.Marshal(result.Metrics)
@@ -312,13 +312,8 @@ func (q *Queue) Complete(ctx context.Context, job *Job, result Result) (publishe
 			return q.recordGarbage(ctx, tx, result.Prefix, "video deleted during processing")
 		}
 		published = true
-		if err := replaceRenditions(ctx, tx, job, result.Renditions); err != nil {
-			return err
-		}
-		return enqueueWebhook(ctx, tx, job, "video.ready", map[string]any{
-			"videoId": job.VideoID, "status": "ready", "durationMs": result.DurationMs,
-			"width": result.Width, "height": result.Height,
-		})
+		// The video.ready webhook is queued by the database (trigger videos_webhooks).
+		return replaceRenditions(ctx, tx, job, result.Renditions)
 	})
 	return published, err
 }
@@ -336,26 +331,6 @@ func replaceRenditions(ctx context.Context, tx pgx.Tx, job *Job, renditions []Re
 		); err != nil {
 			return fmt.Errorf("insert rendition %s: %w", r.Name, err)
 		}
-	}
-	return nil
-}
-
-// enqueueWebhook writes one delivery per subscribed endpoint (transactional outbox): the event
-// exists if and only if the state change committed.
-func enqueueWebhook(ctx context.Context, tx pgx.Tx, job *Job, eventType string, data map[string]any) error {
-	payload, err := json.Marshal(map[string]any{
-		"type": eventType, "createdAt": time.Now().UTC().Format(time.RFC3339Nano), "data": data,
-	})
-	if err != nil {
-		return fmt.Errorf("encode webhook payload: %w", err)
-	}
-	_, err = tx.Exec(ctx, `
-		insert into reelplane.webhook_deliveries (endpoint_id, project_id, event_type, payload)
-		select id, project_id, $2, $3 from reelplane.webhook_endpoints
-		 where project_id = $1 and enabled and $2 = any(events)`,
-		job.ProjectID, eventType, payload)
-	if err != nil {
-		return fmt.Errorf("enqueue %s webhook: %w", eventType, err)
 	}
 	return nil
 }
@@ -410,18 +385,11 @@ func (q *Queue) failLocked(ctx context.Context, tx pgx.Tx, job *Job, attempt, ma
 		 where id = $1`, job.ID, message); err != nil {
 		return Outcome{}, fmt.Errorf("dead-letter job: %w", err)
 	}
-	tag, err := tx.Exec(ctx, `
+	// The video.failed webhook is queued by the database (trigger videos_webhooks).
+	if _, err := tx.Exec(ctx, `
 		update reelplane.videos set status = 'failed', failure_reason = $2
-		 where id = $1 and status in ('queued', 'processing')`, job.VideoID, message)
-	if err != nil {
+		 where id = $1 and status in ('queued', 'processing')`, job.VideoID, message); err != nil {
 		return Outcome{}, fmt.Errorf("fail video: %w", err)
-	}
-	if tag.RowsAffected() > 0 {
-		if err := enqueueWebhook(ctx, tx, job, "video.failed", map[string]any{
-			"videoId": job.VideoID, "status": "failed", "reason": message,
-		}); err != nil {
-			return Outcome{}, err
-		}
 	}
 	return Outcome{}, nil
 }

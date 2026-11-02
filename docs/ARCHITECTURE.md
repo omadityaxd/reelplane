@@ -2,6 +2,55 @@
 
 This document grows phase by phase. Each decision lists the trade-off it accepts.
 
+## Webhooks (Phase 6)
+
+`video.ready`, `video.failed` and `video.deleted`, delivered at least once.
+
+### Queued by the database, in the same transaction as the status change
+
+A trigger on `videos` (`videos_webhooks`, migration 0007) writes one `webhook_deliveries` row
+per subscribed, enabled endpoint whenever a video's status becomes `ready`, `failed` or
+`deleted`. It is the same idea as the audit trail: every path that changes a status (the
+worker publishing, the worker dead-lettering, `DELETE /v1/videos/:id`, the cleanup job, a
+manual fix in psql) queues the webhook, and a rolled-back change queues nothing. This is a
+transactional outbox: there is no moment where the status changed but the event was lost, and
+no event for a change that didn't happen. The trade-off is that event logic lives in SQL.
+
+All of one event's deliveries share an `event_id`, sent as `Reelplane-Event-Id` and as the
+payload's `id`. Receivers dedupe on it.
+
+### Sent by the worker
+
+The Go worker runs a sender next to the transcoder. It claims due deliveries with `FOR UPDATE
+SKIP LOCKED` (several workers never send the same row at once), pushes their next attempt out
+by a lease, sends, and records the result.
+
+- **2xx:** `succeeded`. Anything else, or a timeout (10 s): retried with exponential backoff and
+  full jitter (30 s base, 1 h cap); `dead` after 10 attempts. The dashboard can redeliver.
+- **A worker that dies mid-send** leaves the row to be retried when the lease ends, so a
+  receiver can see an event twice. That is why delivery is at-least-once and events carry an
+  id.
+- **A disabled endpoint's** deliveries wait; they go out when it is enabled again.
+- **Why the worker and not Next.js:** Vercel's free plan has only a daily cron, and a request
+  handler can't retry for an hour. The cost is that webhooks wait while the worker is off.
+  Since a video can only become ready while a worker runs, that mostly affects `video.deleted`.
+
+### Signed, timestamped, and kept off private networks
+
+- **Signature:** `Reelplane-Signature: t=<unix>,v1=<HMAC-SHA256(secret, "<t>.<body>")>`. The
+  timestamp is inside the MAC, so a captured request can't be replayed later with a new
+  timestamp. `verifyWebhook()` in `@reelplane/sdk-core` checks it (constant-time) and rejects
+  deliveries older than 5 minutes. Go and TypeScript tests share one test vector so the signer
+  and verifier can't drift apart.
+- **SSRF:** endpoint URLs are user input, and the worker runs inside someone's network. The
+  dialer refuses loopback, private, link-local (including the 169.254.169.254 cloud metadata
+  address), CGNAT and multicast addresses. The check runs on the IP actually dialled, after DNS,
+  so a hostname that resolves (or re-resolves, DNS rebinding) to a private address is refused
+  too. Redirects are not followed, and proxies are not used. `WEBHOOK_ALLOW_PRIVATE_URLS=true`
+  lifts this for local testing.
+- **Secrets** must be readable to sign, so they are stored as-is, protected by RLS like every
+  other row; the dashboard can roll one.
+
 ## Playback and the Reels experience (Phase 5)
 
 Code: [`packages/sdk-core`](../packages/sdk-core/src) (framework-free) and
@@ -176,8 +225,8 @@ reported **0**.
 - **Transient failures** (FFmpeg crash, storage timeout, lost worker) retry with exponential
   backoff and full jitter (10 s base, 10 min cap) up to `max_attempts` (5).
 - **After that, and for invalid input** (no video stream, a still image, over 60 s), the job
-  goes to `dead` with `last_error` kept. The video becomes `failed` with a reason, and a
-  `video.failed` webhook row is written in the same transaction (an outbox).
+  goes to `dead` with `last_error` kept. The video becomes `failed` with a reason, which queues
+  the `video.failed` webhook in the same transaction (see Webhooks).
 - **SIGTERM** stops claiming. The current job gets 20 s to finish; if it doesn't, it is released
   back to the queue _without_ spending an attempt. Compose's `stop_grace_period` is 30 s.
 - **Hard kills** (OOM, `docker kill`, the chaos test) cannot leave FFmpeg running: on Linux each
