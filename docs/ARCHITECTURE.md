@@ -11,7 +11,7 @@ This document grows phase by phase. Each decision lists the trade-off it accepts
   `lib/server/rate-limit.ts`. Responses carry `RateLimit-Limit/Remaining/Reset`, and a 429
   carries `Retry-After`.
 - **Two counts per request.** First a per-address budget for the whole API (600/min), checked
-  *before* authentication, so a flood of bad keys costs one cheap write each and never reaches
+  _before_ authentication, so a flood of bad keys costs one cheap write each and never reaches
   the key lookup. Then the endpoint's rule.
 - **What is counted depends on who calls.**
   - Browser endpoints (feed, playback events, likes, reports) count per viewer address within
@@ -35,7 +35,7 @@ This document grows phase by phase. Each decision lists the trade-off it accepts
 
 - **Uploads only for signed-in users**, through the same upload path as the API: 100 MB and
   60 s, re-checked by ffprobe in the worker.
-- **Quotas: 3 per user per UTC day, 50 for the whole demo.** A quota row is taken *before* the
+- **Quotas: 3 per user per UTC day, 50 for the whole demo.** A quota row is taken _before_ the
   upload starts, inside a function that locks the demo project's row. Concurrent requests
   queue on the lock instead of all reading "2 of 3 used", so the caps hold under races (tested
   with parallel requests). A failed upload still uses its slot, which errs on the safe side.

@@ -23,14 +23,20 @@ test("a preloaded video keeps playing past its preloaded part after a swipe, wit
   const result = await page.evaluate(async () => {
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     await wait(500);
+    // The active slide's video, by index: "the one that isn't paused" could also be the next
+    // video while the warmer plays its one-frame warm-up.
+    const index = document
+      .querySelector('.rp-item[aria-current="true"]')
+      ?.getAttribute("data-index");
     const videos = [...document.querySelectorAll<HTMLVideoElement>("video.rp-video")];
-    const active = videos.find((v) => !v.paused);
-    if (!active) return { error: "no video is playing after the swipe" };
+    const active = videos.find((v) => v.dataset.index === index);
+    if (!active || index !== "1") return { error: `active slide is ${index}, expected 1` };
 
     let stalls = 0;
     let pauses = 0;
     let mediaSeconds = 0;
     let last = active.currentTime;
+    const startTime = active.currentTime;
     active.addEventListener("waiting", () => {
       if (!active.seeking) stalls += 1;
     });
@@ -44,6 +50,9 @@ test("a preloaded video keeps playing past its preloaded part after a swipe, wit
       mediaSeconds += now >= last ? now - last : now;
       last = now;
     }
+    const buffered = [...Array(active.buffered.length).keys()].map(
+      (i) => `${active.buffered.start(i).toFixed(2)}-${active.buffered.end(i).toFixed(2)}`,
+    );
     return {
       error: null,
       stalls,
@@ -51,13 +60,23 @@ test("a preloaded video keeps playing past its preloaded part after a swipe, wit
       mediaSeconds,
       audible: !active.muted,
       othersMuted: videos.filter((v) => v !== active).every((v) => v.muted),
+      // Diagnostics, printed when an assertion fails.
+      startTime,
+      endTime: active.currentTime,
+      paused: active.paused,
+      readyState: active.readyState,
+      networkState: active.networkState,
+      buffered,
+      mediaError: active.error?.message ?? null,
+      quality: active.getVideoPlaybackQuality?.(),
     };
   });
 
-  expect(result.error).toBeNull();
-  expect(result.mediaSeconds).toBeGreaterThan(8); // well past the ~4 s preloaded part
-  expect(result.stalls).toBe(0);
-  expect(result.pauses).toBe(0);
+  const details = JSON.stringify(result);
+  expect(result.error, details).toBeNull();
+  expect(result.mediaSeconds, details).toBeGreaterThan(8); // well past the ~4 s preloaded part
+  expect(result.stalls, details).toBe(0);
+  expect(result.pauses, details).toBe(0);
   expect(result.audible).toBe(true);
   expect(result.othersMuted).toBe(true);
 });

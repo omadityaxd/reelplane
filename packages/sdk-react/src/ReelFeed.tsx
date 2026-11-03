@@ -5,6 +5,7 @@ import {
   type FeedControllerOptions,
   type FeedItem,
   type FeedName,
+  type FeedPage,
   type FeedState,
   type PlaybackMetric,
 } from "@reelplane/sdk-core";
@@ -41,6 +42,11 @@ export interface ReelFeedProps {
   renderOverlay?: (item: FeedItem, index: number) => ReactNode;
   /** Show live playback details (rendition, bitrate, fps, buffer, dropped frames). */
   debug?: boolean;
+  /**
+   * The first page, fetched on the server: the first slide (poster, title) is then in the HTML
+   * and paints before JavaScript loads, and the feed skips its first request.
+   */
+  initialPage?: FeedPage;
   /** Advanced controller options (benchmarks use `urlTransform` and `sendMetrics`). */
   controllerOptions?: Partial<FeedControllerOptions>;
   className?: string;
@@ -66,7 +72,7 @@ function useController(props: ReelFeedProps): FeedController | null {
   const onMetricRef = useRef(onMetric);
   onMetricRef.current = onMetric;
   // Read when a controller is created; changing them later must not rebuild the feed.
-  const initial = useRef({ muted, controllerOptions });
+  const initial = useRef({ muted, controllerOptions, initialPage: props.initialPage });
   useEffect(() => {
     const next = new FeedController({
       apiBaseUrl: apiBaseUrl ?? window.location.origin,
@@ -76,6 +82,7 @@ function useController(props: ReelFeedProps): FeedController | null {
       pageSize: pageSize ?? 10,
       muted: initial.current.muted ?? true,
       onMetric: (metric) => onMetricRef.current?.(metric),
+      ...(initial.current.initialPage ? { initialPage: initial.current.initialPage } : {}),
       ...initial.current.controllerOptions,
     });
     setController(next);
@@ -146,7 +153,8 @@ export function ReelFeed(props: ReelFeedProps) {
   };
 
   const slotCount = controller?.slotCount ?? 0;
-  const items = state?.items ?? [];
+  // Before the controller exists (server render, first client render), show the initial page.
+  const items = state?.items ?? props.initialPage?.items ?? [];
 
   return (
     <section
@@ -289,6 +297,8 @@ function FeedSlide({ item, index, total, active, overlay, onTap }: FeedSlideProp
           src={item.playback.posterUrl}
           alt=""
           loading={index < 3 ? "eager" : "lazy"}
+          // The first poster is the largest paint of the page: fetch it first.
+          fetchPriority={index === 0 ? "high" : "auto"}
           decoding="async"
         />
       )}

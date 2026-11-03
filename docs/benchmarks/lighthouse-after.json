@@ -1,0 +1,132 @@
+{
+  "tool": "lighthouse 13.5.0, mobile (default throttling), headless Chrome",
+  "measuredOn": "2026-11-03",
+  "runs": {
+    "developers-1": {
+      "url": "http://localhost:3000/developers",
+      "scores": {
+        "performance": 99,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 2085,
+      "tbtMs": 32,
+      "fcpMs": 772,
+      "cls": 0
+    },
+    "developers-2": {
+      "url": "http://localhost:3000/developers",
+      "scores": {
+        "performance": 99,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 2232,
+      "tbtMs": 63,
+      "fcpMs": 769,
+      "cls": 0
+    },
+    "developers-3": {
+      "url": "http://localhost:3000/developers",
+      "scores": {
+        "performance": 99,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 2087,
+      "tbtMs": 32,
+      "fcpMs": 773,
+      "cls": 0
+    },
+    "home-1": {
+      "url": "http://localhost:3000/",
+      "scores": {
+        "performance": 59,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 4906,
+      "tbtMs": 897,
+      "fcpMs": 1292,
+      "cls": 0
+    },
+    "home-2": {
+      "url": "http://localhost:3000/",
+      "scores": {
+        "performance": 96,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 2493,
+      "tbtMs": 126,
+      "fcpMs": 654,
+      "cls": 0
+    },
+    "home-3": {
+      "url": "http://localhost:3000/",
+      "scores": {
+        "performance": 97,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 2454,
+      "tbtMs": 85,
+      "fcpMs": 675,
+      "cls": 0
+    },
+    "upload-1": {
+      "url": "http://localhost:3000/upload",
+      "scores": {
+        "performance": 100,
+        "accessibility": 95,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 1524,
+      "tbtMs": 35,
+      "fcpMs": 774,
+      "cls": 0
+    },
+    "upload-2": {
+      "url": "http://localhost:3000/upload",
+      "scores": {
+        "performance": 99,
+        "accessibility": 95,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 2091,
+      "tbtMs": 34,
+      "fcpMs": 773,
+      "cls": 0
+    },
+    "upload-3": {
+      "url": "http://localhost:3000/upload",
+      "scores": {
+        "performance": 100,
+        "accessibility": 95,
+        "best-practices": 100,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 1522,
+      "tbtMs": 48,
+      "fcpMs": 772,
+      "cls": 0
+    }
+  }
+}

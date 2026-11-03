@@ -1,3 +1,4 @@
+/// <reference path="./hls-light.d.ts" />
 import type Hls from "hls.js";
 import type { BandwidthEstimator } from "./network.ts";
 
@@ -36,8 +37,13 @@ export interface LevelInfo {
 type HlsModule = typeof import("hls.js");
 let hlsModule: Promise<HlsModule> | null = null;
 
+/**
+ * The light build: 37% smaller (374 vs 597 KB minified), measured as the biggest cost of the
+ * demo's Lighthouse score. It leaves out alternate audio, subtitles, DRM, CMCD and content
+ * steering; Reelplane's renditions are single-track CMAF with muxed audio, so none apply.
+ */
 function loadHls(): Promise<HlsModule> {
-  hlsModule ??= import("hls.js");
+  hlsModule ??= import("hls.js/light") as Promise<HlsModule>;
   return hlsModule;
 }
 

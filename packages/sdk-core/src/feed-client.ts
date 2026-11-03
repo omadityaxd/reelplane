@@ -42,6 +42,12 @@ export class FeedError extends Error {
   }
 }
 
+/** A page of a feed as the API returns it (also what a server renders as `initialPage`). */
+export interface FeedPage {
+  items: FeedItem[];
+  nextCursor: string | null;
+}
+
 /** Pages through a feed with the API's opaque cursors. */
 export class FeedClient {
   private cursor: string | null = null;
@@ -55,6 +61,12 @@ export class FeedClient {
 
   get hasMore(): boolean {
     return !this.exhausted;
+  }
+
+  /** Continues after a page that was fetched elsewhere (server-rendered `initialPage`). */
+  resumeAfter(page: FeedPage): void {
+    this.cursor = page.nextCursor;
+    this.exhausted = page.nextCursor === null;
   }
 
   /** Fetches the next page; concurrent calls share one request. */

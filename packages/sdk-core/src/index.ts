@@ -8,6 +8,7 @@ export {
   FeedError,
   type FeedItem,
   type FeedName,
+  type FeedPage,
 } from "./feed-client.ts";
 export {
   type MetricSink,

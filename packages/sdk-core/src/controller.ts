@@ -1,6 +1,6 @@
 import { type DebugInfo, readDebugInfo } from "./debug.ts";
 import { PlaybackEngine } from "./engine.ts";
-import { FeedClient, type FeedItem, type FeedName } from "./feed-client.ts";
+import { FeedClient, type FeedItem, type FeedName, type FeedPage } from "./feed-client.ts";
 import { MetricsQueue, newSessionId, type PlaybackMetric, ViewTracker } from "./metrics.ts";
 import {
   BandwidthEstimator,
@@ -23,6 +23,11 @@ export interface FeedControllerOptions {
   window?: WindowOptions;
   muted?: boolean;
   loop?: boolean;
+  /**
+   * The first page, already fetched (e.g. server-rendered, so the first poster is in the HTML
+   * and paints before any JavaScript runs). The feed starts with it instead of a request.
+   */
+  initialPage?: FeedPage;
   /** Send metrics to the API (default true). */
   sendMetrics?: boolean;
   /** Also receive every metric (dashboards, benchmarks). */
@@ -104,8 +109,9 @@ export class FeedController {
             publishableKey: options.publishableKey,
             ...(options.fetch ? { fetch: options.fetch } : {}),
           });
+    if (options.initialPage) this.client.resumeAfter(options.initialPage);
     this.state = {
-      items: [],
+      items: options.initialPage?.items ?? [],
       activeIndex: -1,
       slots: Array.from({ length: this.slotCount }, () => null),
       muted: options.muted ?? true,
@@ -155,7 +161,7 @@ export class FeedController {
   /** Loads the first page and starts playing the first video. */
   async start(): Promise<void> {
     this.metrics?.start();
-    await this.loadMore();
+    if (this.state.items.length === 0) await this.loadMore();
     if (this.state.items.length > 0) this.setActive(0, "initial");
   }
 

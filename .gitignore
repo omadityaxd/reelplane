@@ -32,3 +32,5 @@ apps/web/playwright-report/
 
 # Written (and re-written) by `next dev`
 apps/web/AGENTS.md
+loadtest/summary*.json
+.tools/

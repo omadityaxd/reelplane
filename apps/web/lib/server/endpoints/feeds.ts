@@ -13,6 +13,7 @@ import type { ObjectStorage } from "@reelplane/storage";
 import { z } from "zod";
 import { json, readJson } from "../api-route.ts";
 import { MemoryCache } from "../cache.ts";
+import type { AppDeps } from "../deps.ts";
 import { endpoint } from "../endpoint.ts";
 import { ApiError } from "../errors.ts";
 import { clientAddress, RULES } from "../rate-limit.ts";
@@ -93,6 +94,28 @@ const feedQuerySchema = z.strictObject({
   cursor: z.string().max(500).optional(),
   explain: z.enum(["1", "true"]).optional(),
 });
+
+/**
+ * The first page of a feed for a server-rendered page (`<ReelFeed initialPage>`): the same
+ * items the API returns, through the same cache.
+ */
+export async function firstFeedPage(
+  deps: AppDeps,
+  projectId: string,
+  feed: FeedSpec,
+  limit: number,
+): Promise<{ items: unknown[]; nextCursor: string | null }> {
+  const cacheKey = JSON.stringify([projectId, feed, limit, "", false]);
+  const cached = feedCache.get<{ data: unknown[]; nextCursor: string | null }>(cacheKey);
+  if (cached) return { items: cached.data, nextCursor: cached.nextCursor };
+  const page = await getFeed(deps.pool, { projectId, feed, limit });
+  const body = {
+    data: page.videos.map((video) => serializeFeedVideo(video, deps.storage, false)),
+    nextCursor: page.nextCursor,
+  };
+  feedCache.set(cacheKey, body, FEED_CACHE_TTL_MS);
+  return { items: body.data, nextCursor: body.nextCursor };
+}
 
 /**
  * GET /v1/feeds/:feed — a page of ready videos for the player. Works with a publishable key

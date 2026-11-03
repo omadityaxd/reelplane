@@ -1,6 +1,6 @@
 "use client";
 
-import type { FeedItem } from "@reelplane/sdk-core";
+import type { FeedItem, FeedPage } from "@reelplane/sdk-core";
 import { ReelFeed } from "@reelplane/sdk-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -74,7 +74,13 @@ function Overlay({ item, publishableKey }: { item: FeedItem; publishableKey: str
   );
 }
 
-export function DemoFeed({ publishableKey }: { publishableKey: string }) {
+export function DemoFeed({
+  publishableKey,
+  initialPage,
+}: {
+  publishableKey: string;
+  initialPage: FeedPage | null;
+}) {
   // `?debug=1` shows live playback details over the feed (for testing on real phones).
   const [debug, setDebug] = useState(false);
   useEffect(() => setDebug(new URLSearchParams(window.location.search).get("debug") === "1"), []);
@@ -101,6 +107,7 @@ export function DemoFeed({ publishableKey }: { publishableKey: string }) {
       <ReelFeed
         publishableKey={publishableKey}
         feed="latest"
+        {...(initialPage ? { initialPage } : {})}
         debug={debug}
         renderOverlay={(item) => <Overlay item={item} publishableKey={publishableKey} />}
         aria-label="Reelplane demo feed"

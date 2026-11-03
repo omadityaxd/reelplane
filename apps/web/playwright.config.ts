@@ -24,6 +24,15 @@ export default defineConfig({
     deviceScaleFactor: 3,
     isMobile: true,
     hasTouch: true,
-    launchOptions: { args: ["--autoplay-policy=no-user-gesture-required"] },
+    launchOptions: {
+      args: [
+        "--autoplay-policy=no-user-gesture-required",
+        // A fake audio output: with sound on, Chrome times playback by the audio device, and a
+        // flaky one (measured on the dev laptop: a plain unmuted <video> ran at ~80% speed and
+        // the feed froze in 9 of 10 runs, 10 of 10 fine with this flag) makes tests measure the
+        // speaker instead of the player. Elements are still muted/unmuted as in a real browser.
+        "--disable-audio-output",
+      ],
+    },
   },
 });

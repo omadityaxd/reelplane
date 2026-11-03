@@ -6,7 +6,8 @@
   --border: #e4e4e7;
   --text: #18181b;
   --muted: #71717a;
-  --accent: #db2777;
+  /* White text on it: #be185d is 6.0:1 (WCAG AA needs 4.5:1; #db2777 was 4.0:1). */
+  --accent: #be185d;
   --accent-text: #ffffff;
   --ok: #15803d;
   --ok-bg: #dcfce7;
@@ -34,7 +35,7 @@
     --border: #2e2e33;
     --text: #f4f4f5;
     --muted: #a1a1aa;
-    --accent: #ec4899;
+    --accent: #be185d;
     --ok: #4ade80;
     --ok-bg: #14532d55;
     --warn: #facc15;
