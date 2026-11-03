@@ -209,15 +209,128 @@ tests `TestQueue/a_worker_whose_lease_was_reaped_cannot_complete_the_job_(fencin
 
 ## Transcode speed
 
-Speed = seconds of source video per second of encoding, for all three rungs (240p/480p/720p)
-together, `-preset veryfast`, 720x1280 30 fps source with AAC audio.
+Speed = seconds of source video per second of encoding, for the whole ladder in one FFmpeg run,
+`-preset veryfast`.
 
-| Where                                     | Speed                            | Notes                                           |
-| ----------------------------------------- | -------------------------------- | ----------------------------------------------- |
-| Laptop, 4 workers in parallel (chaos run) | 7.2× realtime (mean of 100 jobs) | CPU shared by 4 encodes                         |
-| Laptop, 3 workers in parallel (chaos run) | 9.1× realtime (mean of 40 jobs)  |                                                 |
-| Laptop, worker in Docker, single job      | 6.4× realtime                    | one 6 s upload via the real API                 |
-| Free 2-vCPU worker host                   | _pending_                        | to measure with `docker run --cpus=2` (Phase 7) |
+**The showcase set on a 2-vCPU worker** (`pnpm bench:transcode`). The worker's Docker image ran
+with `--cpus=2`, the size of a small free VM, on 11 clips (144 s of video). Each clip went
+through the real API and upload path; raw results are in
+[`benchmarks/transcode-*.json`](benchmarks/). Measured 2026-11-03.
+
+| Clip                                           | Ladder                    | First run  | With the thread cap |
+| ---------------------------------------------- | ------------------------- | ---------- | ------------------- |
+| Sintel 460x818 @ 24 fps, 12 s (×3)             | 240p, native 460p         | 1.14–1.45× | **4.19–4.64×**      |
+| Big Buck Bunny 608x1080 @ 25 fps, 10–11 s (×3) | 240p, 480p, native 608p   | 1.67–1.84× | **2.57–2.64×**      |
+| Phone clips 576x1024 @ 30 fps, 10–27 s (×3)    | 240p, 480p, native 576p   | 1.11–1.23× | **2.75–2.97×**      |
+| Big Buck Bunny 1080x1920 @ 60 fps, 12 s (×2)   | 240p–1080p, all at 60 fps | 0.06–0.07× | **0.37×**           |
+| **All 11 clips**                               |                           | **0.32×**  | **1.38×**           |
+
+**Why the first run was so slow.** `--cpus=2` is a CPU-time quota, not a core count. Inside the
+container FFmpeg still saw all 24 of the laptop's threads (`nproc` = 24, `cpu.max` =
+`200000 100000`). So it started a full set of threads for the decoder, the filters and _each_ of the
+ladder's encoders, which then fought over 2 CPUs.
+
+- **Measured in isolation**, in the same container: one 1080p60 encode took 31.8 s with
+  FFmpeg's default threads and 14.5 s with `-threads 2`.
+- **The fix:** the worker now gives FFmpeg a thread budget when it is CPU-limited. It reads the
+  limit from Go's quota-aware `GOMAXPROCS` and gives each parallel encoder an equal share.
+  `FFMPEG_THREADS` overrides it.
+
+**On an unrestricted machine the cap is off,** because there it lost. Same 11 clips, worker
+container with no CPU limit on the laptop's 24 threads:
+
+| Threads                        | All 11 clips       | 1080p60 clip | Sintel clip |
+| ------------------------------ | ------------------ | ------------ | ----------- |
+| FFmpeg's default (what ships)  | **2.91× realtime** | 0.62×        | 11.8×       |
+| Capped at 24 (budget per rung) | 2.50× realtime     | 0.53×        | 10.1×       |
+
+**1080p60 is the expensive case:** four 60 fps rungs including a 1080p one. On 2 vCPUs a 12 s
+1080p60 upload takes about 33 s to publish. A worker this size handles casual demo uploads, but
+not a queue of 60 fps phone videos. Lower-resolution sources run 2.6–4.6× realtime there.
+
+**Earlier measurements** (720x1280 30 fps source, three rungs, Phase 4):
+
+| Where                                     | Speed                            | Notes                           |
+| ----------------------------------------- | -------------------------------- | ------------------------------- |
+| Laptop, 4 workers in parallel (chaos run) | 7.2× realtime (mean of 100 jobs) | CPU shared by 4 encodes         |
+| Laptop, 3 workers in parallel (chaos run) | 9.1× realtime (mean of 40 jobs)  |                                 |
+| Laptop, worker in Docker, single job      | 6.4× realtime                    | one 6 s upload via the real API |
+
+## Feed and upload API under load (k6)
+
+**Setup.**
+
+- **Load:** `pnpm loadtest` ([`loadtest/feed-and-uploads.js`](../loadtest/feed-and-uploads.js)),
+  k6 2.3.0 on the laptop.
+- **Server:** one `next start` process (production build) and Postgres 18 in Docker on the
+  same machine. So this is one Node process's capacity, not Vercel's, which runs many.
+- **Requests:**
+  - `GET /v1/feeds/latest` with a publishable key from an allowed origin, page sizes 5–30 at
+    random. The 10 s per-instance feed cache answered 95–99% of them.
+  - `POST /v1/uploads` (a real multipart session in storage), then `DELETE` to abort it.
+- **Rate limits** were scaled ×1000 for these runs (`RATE_LIMIT_SCALE`): k6 is one address, and
+  the point was throughput. Every request still paid for its two rate-limit writes.
+
+Each run followed a 15 s warm-up. Constant arrival rate:
+
+| Load (requests/s)        | Feed p50 / p95 / p99  | Create upload p95 | Abort p95 | Errors | Dropped |
+| ------------------------ | --------------------- | ----------------- | --------- | ------ | ------- |
+| 50 feed + 5 upload       | 12 / 20 / – ms        | 55 ms             | 52 ms     | 0      | 0       |
+| 75 feed + 5 upload       | 11 / 24 / – ms        | 66 ms             | 59 ms     | 0      | 0       |
+| **100 feed + 10 upload** | **14 / 48 / 150 ms**  | **103 ms**        | 111 ms    | 0      | 0       |
+| 150 feed + 10 upload     | 1579 / 2098 / 2830 ms | 2642 ms           | 3110 ms   | 0      | 1,732   |
+
+The 100 and 150 req/s runs lasted 60 s. The 50 and 75 req/s runs lasted 30 s and predate p99
+recording.
+
+**One process tops out at about 120–140 requests/s.** At 150 req/s requests queue and k6 has
+to drop iterations. A single cached feed request costs about 15 ms. Database time is only about
+4 ms of that, measured with the queries timed on their own (p50 of 200):
+
+- a round trip: 0.53 ms;
+- a rate-limit hit: 0.68 ms;
+- authenticating a key: 2.59 ms.
+
+The rest is Node/Next.js CPU. More capacity means more instances, not a faster database.
+
+**The rate limits themselves**, unscaled: one address sent 5 feed requests/s and 1 upload
+session/s for 60 s.
+
+- **Feed:** 301 requests, 213 allowed and 88 answered 429, every 429 with a `Retry-After`. The
+  rule is 120 per minute per viewer address, and the run straddled two fixed windows.
+- **Upload sessions:** 49 of 61 created (30 per minute per key).
+- **The trade-off of fixed windows:** up to twice the limit can pass around a window boundary.
+
+## Lighthouse (demo site)
+
+Lighthouse 13.5.0, mobile profile (simulated slow 4G and 4× CPU slowdown), headless Chrome,
+against the production build on the laptop. Media came from local storage. Median of 3 runs per
+page; raw scores are in [`benchmarks/lighthouse-*.json`](benchmarks/). Measured 2026-11-03.
+
+| Page          | Performance | Accessibility | Best practices | SEO | LCP       | TBT        | CLS |
+| ------------- | ----------- | ------------- | -------------- | --- | --------- | ---------- | --- |
+| `/` before    | 70          | 100           | 96             | 100 | 4.6 s     | 505 ms     | 0   |
+| **`/` after** | **96**      | 100           | **100**        | 100 | **2.5 s** | **126 ms** | 0   |
+| `/developers` | 99          | 100           | 100            | 100 | 2.1 s     | 32 ms      | 0   |
+| `/upload`     | 100         | 95¹           | 100            | 100 | 1.5 s     | 35 ms      | 0   |
+
+**What changed on `/`**, each found in the first report:
+
+- **LCP 4.6 → 2.5 s.** The largest paint was the first slide's text, rendered only after
+  JavaScript loaded and fetched the feed (1.45 s "element render delay"). The page now
+  server-renders the first feed page (`<ReelFeed initialPage>`), so the first poster and title
+  are in the HTML, and the poster is fetched with `fetchpriority="high"`.
+- **TBT 505 → 126 ms.** The biggest script was hls.js, 583 KB. Its light build is 366 KB. It
+  leaves out alternate audio, subtitles, DRM and CMCD, none of which Reelplane's single-track
+  muxed renditions use.
+- **Best practices 96 → 100:** an app icon (the 404 in the console).
+
+¹ The primary button's white text on `#db2777` failed the contrast check. The accent is now
+`#be185d` (6.0:1); not re-measured after that change.
+
+The "before" row was measured on commit `8580b62` in a separate worktree, with the same media
+setup. The very first audit of the day scored 66, but its media URLs pointed at an old LAN
+address and timed out, so it isn't comparable and isn't in the table.
 
 ## Pending
 
@@ -225,7 +338,8 @@ These will be filled in by the phases that build them:
 
 - Swipe-to-play without preloading on the iPhone: full 25-swipe run (only 2/25 so far)
 - The cause of the iPhone p95 outliers (from the slowest-swipe readout on `/bench`)
-- Feed API p95 under load, k6 (Phase 7)
+- Transcode speed on the actual free worker host (Phase 8; the 2-vCPU numbers above are a
+  quota-limited container on the laptop's CPU)
 
 ## SDK size
 
@@ -237,5 +351,7 @@ These will be filled in by the phases that build them:
 | `@reelplane/sdk-react` (`<ReelFeed />` + styles)                               | 14.7 KB | 4.9 KB  |
 
 hls.js is not included: it is a dynamic `import()`, so bundlers split it into a separate chunk,
-loaded on first playback and never on Apple devices (native HLS). Both packages are
+loaded on first playback and never on Apple devices (native HLS). Since Phase 7 that is hls.js's
+light build: a 366 KB minified chunk in the demo's production build, down from 583 KB for the
+full build (see Lighthouse above). Both packages are
 `sideEffects: false` and tree-shake: an app that only uses `uploadVideo` doesn't ship the player.

@@ -42,10 +42,13 @@ export const options = {
       exec: "uploadSession",
     },
   },
-  thresholds: {
-    "http_req_failed{scenario:feed}": ["rate<0.01"],
-    "http_req_failed{scenario:uploads}": ["rate<0.01"],
-  },
+  // 429s are expected when measuring the limits themselves (EXPECT_LIMITS=1).
+  thresholds: __ENV.EXPECT_LIMITS
+    ? {}
+    : {
+        "http_req_failed{scenario:feed}": ["rate<0.01"],
+        "http_req_failed{scenario:uploads}": ["rate<0.01"],
+      },
 };
 
 // Viewers ask for different page sizes, so the 10 s per-instance feed cache sees a mix of hits
@@ -61,7 +64,9 @@ export function feed() {
   if (res.status === 429) limited.add(1);
   feedMs.add(res.timings.duration);
   feedCacheHit.add(res.headers["X-Cache"] === "hit");
-  check(res, { "feed 200": (r) => r.status === 200 });
+  check(res, { "feed 200 or 429": (r) => r.status === 200 || r.status === 429 });
+  if (res.status === 429)
+    check(res, { "429 has Retry-After": (r) => Number(r.headers["Retry-After"]) > 0 });
 }
 
 export function uploadSession() {
@@ -76,8 +81,11 @@ export function uploadSession() {
       tags: { name: "POST /v1/uploads" },
     },
   );
-  if (res.status === 429) limited.add(1);
   createMs.add(res.timings.duration);
+  if (res.status === 429) {
+    limited.add(1);
+    return;
+  }
   if (!check(res, { "create 201": (r) => r.status === 201 })) return;
   // Abort right away, so the run leaves no open multipart uploads behind.
   const id = res.json("data.upload.videoId");

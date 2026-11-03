@@ -363,6 +363,13 @@ reported **0**.
   a blurred 16px JPEG inlined as a `data:` URI (~400 bytes) so the feed paints instantly.
 - **Preset:** `veryfast` by default to keep free CPUs usable; configurable with `FFMPEG_PRESET`.
 
+
+**FFmpeg's threads follow the CPUs the worker may actually use.** In a container with a CPU
+quota (a small cloud VM, `docker run --cpus=2`), FFmpeg still sees every host core and starts
+threads for all of them, for every rung. On 2 vCPUs that made the showcase set 4.3× slower
+(BENCHMARKS.md). The worker reads its real budget from Go's quota-aware `GOMAXPROCS` and caps
+FFmpeg's decoder, filters and each encoder to a share of it. With no quota it leaves FFmpeg's
+defaults alone, which measured 14% faster on an unrestricted 24-thread machine.
 ### Proving it: the chaos test
 
 `pnpm worker:chaos` runs N jobs on a fleet of real worker processes and hard-kills a random

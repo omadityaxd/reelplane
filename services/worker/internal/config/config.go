@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -50,10 +51,13 @@ type Config struct {
 
 	MaxDuration time.Duration
 	Preset      string
-	FFmpegPath  string
-	FFprobePath string
-	TempDir     string
-	LogFormat   string
+	// FFmpegThreads is the CPU budget for one encode (0 = FFmpeg's default): FFMPEG_THREADS,
+	// else see cpuBudget.
+	FFmpegThreads int
+	FFmpegPath    string
+	FFprobePath   string
+	TempDir       string
+	LogFormat     string
 }
 
 type getenv func(string) string
@@ -100,6 +104,16 @@ func load(env getenv) (Config, error) {
 		LogFormat:         firstNonEmpty(env("LOG_FORMAT"), "text"),
 	}
 
+	cfg.FFmpegThreads = cpuBudget(runtime.GOMAXPROCS(0), runtime.NumCPU())
+	if raw := env("FFMPEG_THREADS"); raw != "" {
+		threads, err := strconv.Atoi(raw)
+		if err != nil || threads < 0 {
+			errs = append(errs, fmt.Errorf("FFMPEG_THREADS: expected 0 (FFmpeg's default) or a positive integer, got %q", raw))
+		} else {
+			cfg.FFmpegThreads = threads
+		}
+	}
+
 	cfg.WebhookMaxAttempts = 10
 	if raw := env("WEBHOOK_MAX_ATTEMPTS"); raw != "" {
 		attempts, err := strconv.Atoi(raw)
@@ -127,6 +141,17 @@ func load(env getenv) (Config, error) {
 		errs = append(errs, fmt.Errorf("FFMPEG_PRESET: unknown x264 preset %q", cfg.Preset))
 	}
 	return cfg, errors.Join(errs...)
+}
+
+// cpuBudget caps FFmpeg's threads only when this process may use fewer CPUs than it can see:
+// a container CPU quota (GOMAXPROCS follows it since Go 1.25; NumCPU doesn't). Measured with
+// the 11 showcase clips (docs/BENCHMARKS.md): on 2 vCPUs the cap made the run 4.3x faster;
+// with no limit on 24 threads, FFmpeg's default was 14% faster than the cap, so it stays.
+func cpuBudget(usable, visible int) int {
+	if usable < visible {
+		return usable
+	}
+	return 0
 }
 
 var validPresets = map[string]bool{

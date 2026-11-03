@@ -247,3 +247,21 @@ func TestReadProgress(t *testing.T) {
 		t.Errorf("progress = %v", seen)
 	}
 }
+
+func TestHLSArgsThreadBudget(t *testing.T) {
+	plan := EncodePlan{Input: "in.mp4", OutDir: "out", Rungs: PlanLadder(1080, 1920, 60), Rate: Rate{"60/1", 60}, Preset: "veryfast"}
+	if args := strings.Join(HLSArgs(plan), " "); strings.Contains(args, "-threads") {
+		t.Errorf("Threads 0 must leave FFmpeg's defaults:\n%s", args)
+	}
+	// 2 CPUs, 4 rungs: decode and filters get 2, each parallel encoder 1.
+	plan.Threads = 2
+	args := strings.Join(HLSArgs(plan), " ")
+	for _, want := range []string{"-threads 2 -filter_complex_threads 2 -i in.mp4", "-threads:v:0 1", "-threads:v:3 1"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args missing %q\n%s", want, args)
+		}
+	}
+	if got := encoderThreads(24, 4); got != 6 {
+		t.Errorf("encoderThreads(24, 4) = %d, want 6", got)
+	}
+}

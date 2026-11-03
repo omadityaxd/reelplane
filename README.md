@@ -64,6 +64,13 @@ import { ReelFeed } from "@reelplane/sdk-react";
 </div>;
 ```
 
+Measure it (results in [docs/BENCHMARKS.md](docs/BENCHMARKS.md)):
+
+```bash
+pnpm loadtest            # k6: feed + upload-session endpoints (needs k6, or K6=<path to k6>)
+pnpm bench:transcode     # upload the showcase clips and report each transcode's speed
+```
+
 Run the storage contract against the real local S3 server:
 
 ```bash

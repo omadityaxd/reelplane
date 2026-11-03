@@ -59,3 +59,15 @@ func TestRejectsMalformedValues(t *testing.T) {
 		t.Fatalf("expected both errors, got %v", err)
 	}
 }
+
+func TestCPUBudget(t *testing.T) {
+	for _, c := range []struct{ usable, visible, want int }{
+		{2, 24, 2},  // container with a 2-CPU quota on a 24-thread host
+		{24, 24, 0}, // no limit: FFmpeg's default
+		{4, 4, 0},
+	} {
+		if got := cpuBudget(c.usable, c.visible); got != c.want {
+			t.Errorf("cpuBudget(%d, %d) = %d, want %d", c.usable, c.visible, got, c.want)
+		}
+	}
+}

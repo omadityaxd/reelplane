@@ -61,6 +61,7 @@ func run() error {
 	q.SetGarbageDelay(cfg.GarbageDelay)
 	p := &pipeline.Pipeline{
 		Store: store, FFmpeg: cfg.FFmpegPath, FFprobe: cfg.FFprobePath, Preset: cfg.Preset,
+		Threads: cfg.FFmpegThreads,
 		Limits:  media.Limits{MaxDuration: cfg.MaxDuration, MaxSide: maxSourceSide, MinSide: minSourceSide},
 		TempDir: cfg.TempDir,
 	}
@@ -79,7 +80,7 @@ func run() error {
 		Lease:        3 * cfg.WebhookTimeout,
 	}, log)
 	log.Info("configuration", "storage", cfg.Storage.Provider, "lease", cfg.LeaseDuration,
-		"heartbeat", cfg.HeartbeatInterval, "preset", cfg.Preset,
+		"heartbeat", cfg.HeartbeatInterval, "preset", cfg.Preset, "ffmpeg_threads", cfg.FFmpegThreads,
 		"webhook_private_urls", cfg.WebhookAllowPrivate)
 
 	var delivering sync.WaitGroup

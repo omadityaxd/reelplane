@@ -14,6 +14,9 @@ importers:
       '@reelplane/db':
         specifier: workspace:*
         version: link:packages/db
+      '@reelplane/sdk-core':
+        specifier: workspace:*
+        version: link:packages/sdk-core
       '@reelplane/storage':
         specifier: workspace:*
         version: link:packages/storage

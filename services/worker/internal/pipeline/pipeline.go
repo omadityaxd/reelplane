@@ -26,6 +26,8 @@ type Pipeline struct {
 	FFmpeg  string
 	FFprobe string
 	Preset  string
+	// Threads caps FFmpeg's threads (0 = FFmpeg's default); see media.EncodePlan.Threads.
+	Threads int
 	Limits  media.Limits
 	TempDir string
 	// Now is injectable for tests.
@@ -68,7 +70,7 @@ func (p *Pipeline) Run(ctx context.Context, job *queue.Job, progress func(int)) 
 	rungs := media.PlanLadder(probe.Width, probe.Height, rate.FPS)
 	plan := media.EncodePlan{
 		Input: source, OutDir: out, Rungs: rungs, Rate: rate, HDR: probe.IsHDR(),
-		HasAudio: probe.HasAudio, Preset: p.Preset,
+		HasAudio: probe.HasAudio, Preset: p.Preset, Threads: p.Threads,
 	}
 	encodeStart := now()
 	if err := media.Transcode(ctx, p.FFmpeg, plan, probe.Duration, func(f float64) {

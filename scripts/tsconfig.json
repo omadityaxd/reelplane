@@ -2,6 +2,8 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
+    // The SDK (used by the upload benchmark) refers to DOM types.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
   "include": ["."]

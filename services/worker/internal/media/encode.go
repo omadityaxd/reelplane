@@ -33,6 +33,16 @@ type EncodePlan struct {
 	HDR      bool
 	HasAudio bool
 	Preset   string
+	// Threads is how many CPUs the encode may use (0 = FFmpeg's default: every core it can
+	// see). In a container with a CPU quota FFmpeg still sees all the host's cores, so each
+	// encoder would start that many threads; measured on a 2-CPU container, a 1080p60 encode
+	// took 2.2x longer that way (docs/BENCHMARKS.md).
+	Threads int
+}
+
+// encoderThreads splits the CPU budget across the rungs, which encode in parallel.
+func encoderThreads(threads, rungs int) int {
+	return max(1, (threads+rungs-1)/max(rungs, 1))
 }
 
 // HLSArgs builds a single FFmpeg invocation that decodes once, scales into every rung with
@@ -56,9 +66,15 @@ func HLSArgs(plan EncodePlan) []string {
 	args := []string{
 		"-hide_banner", "-nostdin", "-y", "-v", "error",
 		"-progress", "pipe:1", "-nostats", "-stats_period", "0.5",
+	}
+	if plan.Threads > 0 {
+		t := strconv.Itoa(plan.Threads)
+		args = append(args, "-threads", t, "-filter_complex_threads", t)
+	}
+	args = append(args,
 		"-i", plan.Input,
 		"-filter_complex", filter.String(),
-	}
+	)
 	var streamMap []string
 	for i, rung := range plan.Rungs {
 		args = append(args, "-map", fmt.Sprintf("[v%d]", i))
@@ -86,6 +102,9 @@ func HLSArgs(plan EncodePlan) []string {
 			fmt.Sprintf("-maxrate:v:%d", i), fmt.Sprintf("%dk", rung.MaxrateKbps),
 			fmt.Sprintf("-bufsize:v:%d", i), fmt.Sprintf("%dk", rung.BufsizeKbps),
 		)
+		if plan.Threads > 0 {
+			args = append(args, fmt.Sprintf("-threads:v:%d", i), strconv.Itoa(encoderThreads(plan.Threads, n)))
+		}
 		if plan.HasAudio {
 			args = append(args, fmt.Sprintf("-b:a:%d", i), fmt.Sprintf("%dk", rung.AudioKbps))
 		}

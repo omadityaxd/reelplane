@@ -1,0 +1,43 @@
+{
+  "tool": "lighthouse 13.5.0, mobile (default throttling), headless Chrome",
+  "measuredOn": "2026-11-03",
+  "commit": "8580b62 (before server-rendered first page and hls.js light)",
+  "runs": {
+    "home-1": {
+      "scores": {
+        "performance": 70,
+        "accessibility": 100,
+        "best-practices": 96,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 4605,
+      "tbtMs": 505,
+      "fcpMs": 651
+    },
+    "home-2": {
+      "scores": {
+        "performance": 63,
+        "accessibility": 100,
+        "best-practices": 96,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 4790,
+      "tbtMs": 825,
+      "fcpMs": 652
+    },
+    "home-3": {
+      "scores": {
+        "performance": 81,
+        "accessibility": 100,
+        "best-practices": 96,
+        "seo": 100,
+        "agentic-browsing": 100
+      },
+      "lcpMs": 4459,
+      "tbtMs": 207,
+      "fcpMs": 642
+    }
+  }
+}
