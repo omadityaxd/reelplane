@@ -1,4 +1,12 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { NextConfig } from "next";
+
+// One .env at the repo root configures everything (scripts, worker, web). Next reads only
+// apps/web/.env*, so load the root file too. Real environment variables and apps/web/.env.local
+// still win: loadEnvFile never overrides a variable that is already set.
+const rootEnv = resolve(import.meta.dirname, "..", "..", ".env");
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 // Lets a phone on the same network load the dev server (Next blocks cross-origin dev requests).
 const lanHosts = (process.env.NEXT_DEV_ALLOWED_HOSTS ?? "")

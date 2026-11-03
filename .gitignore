@@ -29,3 +29,6 @@ content/showcase/**/*.m4v
 # Playwright output
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Written (and re-written) by `next dev`
+apps/web/AGENTS.md

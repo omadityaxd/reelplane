@@ -1,4 +1,10 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig } from "@playwright/test";
+
+// Tests that talk to Supabase or the database read the same root .env as the app.
+const rootEnv = resolve(import.meta.dirname, "..", "..", ".env");
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 /**
  * End-to-end playback tests. They need the running stack (`pnpm infra:up`, the worker, a seeded
