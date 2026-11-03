@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { createPool, listApiKeys, resolveDatabaseUrl } from "@reelplane/db";
+import { createPool, listApiKeys, resolveDatabaseUrl, withTenant } from "@reelplane/db";
 import { createClient } from "@supabase/supabase-js";
 
 /**
@@ -57,6 +57,19 @@ test.afterAll(async () => {
   try {
     // Projects belong to the test users; deleting them as the table owner removes the lot.
     await pool.query("delete from reelplane.projects where owner_id = any($1::uuid[])", [created]);
+    // Demo uploads live in the demo project: delete them like the API would (files swept later).
+    const { rows } = await pool.query<{ id: string; project_id: string }>(
+      "select id, project_id from reelplane.videos where creator_id = any($1::text[]) and status <> 'deleted'",
+      [created.map((id) => `user:${id}`)],
+    );
+    for (const video of rows) {
+      await withTenant(pool, { projectId: video.project_id }, (client) =>
+        client.query("select reelplane.delete_video($1, interval '0')", [video.id]),
+      );
+    }
+    await pool.query("delete from reelplane.demo_upload_quota where user_id = any($1::uuid[])", [
+      created,
+    ]);
   } finally {
     await pool.end();
   }
@@ -116,6 +129,34 @@ test("one user can never see or change another user's projects", async ({ browse
     await bobPage.waitForTimeout(1500);
     expect((await listApiKeys(pool, aliceProject)).length).toBe(before);
     await expect(bobPage.locator(".dash-secret")).toHaveCount(0);
+  } finally {
+    await pool.end();
+  }
+});
+
+test("a signed-in visitor can upload a reel to the demo, and it counts against their quota", async ({
+  browser,
+}) => {
+  const visitor = await newUser("demo");
+  const page = await (await browser.newContext()).newPage();
+  // The link carries next=/upload, as the sign-in button on /upload does.
+  await page.goto(`${visitor.signInPath}&next=/upload`);
+  await expect(page).toHaveURL(/\/upload$/);
+
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles("C:/reelkit/content/showcase/licensed/bbb-04.mp4");
+  await expect(page.getByRole("status")).toContainText("uploaded", { timeout: 30_000 });
+
+  const pool = createPool(resolveDatabaseUrl(), { max: 1 });
+  try {
+    const { rows } = await pool.query<{ status: string; quota: number }>(
+      `select v.status,
+              (select count(*)::int from reelplane.demo_upload_quota where user_id = $1) as quota
+         from reelplane.videos v where v.creator_id = $2`,
+      [visitor.id, `user:${visitor.id}`],
+    );
+    expect(rows).toEqual([{ status: "queued", quota: 1 }]);
   } finally {
     await pool.end();
   }
