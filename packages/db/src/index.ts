@@ -21,6 +21,7 @@ export {
   type RenditionSummary,
   renameProject,
   type TimelineEvent,
+  unhideVideo,
   videoTimeline,
 } from "./dashboard.ts";
 export {

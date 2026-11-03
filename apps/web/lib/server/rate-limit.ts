@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Pool } from "@reelplane/db";
 import { ApiError } from "./errors.ts";
 
@@ -37,6 +38,17 @@ export class RateLimitedError extends ApiError {
   }
 }
 
+/**
+ * `family:anything` → `family:<sha256 of anything>`: a fixed length whatever the address,
+ * email or key in it (no oversized keys, no two buckets colliding through a crafted value).
+ */
+export function bucketKey(bucket: string): string {
+  const at = bucket.indexOf(":");
+  const family = (at < 0 ? bucket : bucket.slice(0, at)).slice(0, 40);
+  const rest = at < 0 ? "" : bucket.slice(at + 1);
+  return `${family}:${createHash("sha256").update(rest).digest("base64url")}`;
+}
+
 export class PostgresRateLimiter implements RateLimiter {
   /** `scale` multiplies every limit (RATE_LIMIT_SCALE; load tests only). */
   constructor(
@@ -48,7 +60,7 @@ export class PostgresRateLimiter implements RateLimiter {
     const scaled = Math.max(1, Math.round(limit * this.scale));
     const { rows } = await this.pool.query<{ hits: number; reset_at: Date }>(
       "select hits, reset_at from reelplane.rate_limit_hit($1, $2)",
-      [bucket, windowSeconds],
+      [bucketKey(bucket), windowSeconds],
     );
     const row = rows[0];
     if (!row) throw new Error("rate_limit_hit returned no row");
@@ -63,25 +75,49 @@ export class PostgresRateLimiter implements RateLimiter {
 
 /** Every client address gets this much of the whole API before authentication even runs. */
 export const CLIENT_RULE: RateLimitRule = {
-  name: "client",
+  name: "pre-auth",
   limit: 600,
   windowSeconds: 60,
   by: "client",
 };
 
+export type TrustedProxy = "vercel" | "proxy" | "none";
+
 /**
- * The caller's address. On Vercel `x-vercel-forwarded-for` and `x-real-ip` are set by the
- * platform and can't be forged; elsewhere put the app behind a proxy that overwrites
- * `x-forwarded-for`, or per-address limits can be dodged by sending a fake one.
+ * Who sets the address headers. Next's own server only fills in `x-forwarded-for` when the
+ * client didn't send one, so without a trusted proxy in front any address header is whatever
+ * the client wrote, and per-address limits (and report counting) could be dodged with a fake.
+ *
+ * - `vercel` (default on Vercel): `x-vercel-forwarded-for`, which the platform sets and clients
+ *   can't override.
+ * - `proxy`: the last `x-forwarded-for` entry, the address your own proxy (nginx, Caddy, a
+ *   load balancer) appended. Only use it when every request goes through that proxy.
+ * - `none` (default elsewhere): no address is trusted; all clients share one bucket. Safe, but
+ *   one busy client can then rate-limit everyone, so set TRUSTED_PROXY when self-hosting.
  */
-export function clientAddress(request: Request): string {
-  const header = (name: string) => request.headers.get(name)?.split(",")[0]?.trim();
-  return (
-    header("x-vercel-forwarded-for") ||
-    header("x-real-ip") ||
-    header("x-forwarded-for") ||
-    "unknown"
-  );
+export function trustedProxy(env: Record<string, string | undefined> = process.env): TrustedProxy {
+  const value = env.TRUSTED_PROXY;
+  if (value === "vercel" || value === "proxy" || value === "none") return value;
+  return env.VERCEL ? "vercel" : "none";
+}
+
+/** An IPv6 client can change its last 64 bits at will: count its /64, like one address. */
+function normalizeAddress(address: string): string {
+  if (!address.includes(":")) return address;
+  return address.split(":").slice(0, 4).join(":");
+}
+
+/** The caller's address under the configured trust (see trustedProxy). */
+export function clientAddress(request: Request, proxy: TrustedProxy = trustedProxy()): string {
+  if (proxy === "vercel") {
+    const address = request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+    return address ? normalizeAddress(address) : "unknown";
+  }
+  if (proxy === "proxy") {
+    const address = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
+    return address ? normalizeAddress(address) : "unknown";
+  }
+  return "untrusted";
 }
 
 export function rateLimitHeaders(result: RateLimitResult, now = Date.now()): Headers {

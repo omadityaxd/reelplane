@@ -1,6 +1,6 @@
 "use server";
 
-import { deleteVideo } from "@reelplane/db";
+import { deleteVideo, unhideVideo } from "@reelplane/db";
 import { revalidatePath } from "next/cache";
 import { ACTION_RULES, allowAction } from "@/lib/server/dashboard/limits.ts";
 import { requireProject } from "@/lib/server/dashboard/session.ts";
@@ -42,5 +42,12 @@ export async function createDashboardUpload(
 export async function deleteDashboardVideo(projectId: string, videoId: string): Promise<void> {
   await requireProject(projectId);
   await deleteVideo(appDeps().pool, projectId, videoId);
+  revalidatePath(`/dashboard/${projectId}`, "layout");
+}
+
+/** Shows a video that viewer reports hid from feeds again (after the owner reviewed it). */
+export async function unhideDashboardVideo(projectId: string, videoId: string): Promise<void> {
+  await requireProject(projectId);
+  await unhideVideo(appDeps().pool, projectId, videoId);
   revalidatePath(`/dashboard/${projectId}`, "layout");
 }

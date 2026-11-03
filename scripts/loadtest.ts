@@ -31,6 +31,11 @@ try {
     { projectId: bench.id, kind: "secret", name: "k6 load test" },
     resolvePepper(),
   );
+  // It expires by itself within the hour, even if this script is killed before revoking it.
+  await pool.query(
+    "update reelplane.api_keys set expires_at = now() + interval '1 hour' where id = $1",
+    [secret.record.id],
+  );
   try {
     // K6 overrides the binary (e.g. the portable release in .tools/k6/k6.exe).
     const k6 = process.env.K6 ?? "k6";

@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import { createPool, createProject, generateApiKey, revokeApiKey } from "@reelplane/db";
 import { afterAll, describe, expect, inject, it } from "vitest";
 import { apiRoute, corsPreflight, json } from "@/lib/server/api-route.ts";
-import { PostgresRateLimiter, type RateLimitRule } from "@/lib/server/rate-limit.ts";
+import {
+  bucketKey,
+  clientAddress,
+  PostgresRateLimiter,
+  type RateLimitRule,
+  trustedProxy,
+} from "@/lib/server/rate-limit.ts";
 
 const PEPPER = "web-test-pepper-0123456789abcdef0123";
 const ALLOWED = "https://shop.example.com";
@@ -143,9 +149,14 @@ describe("rate limits", () => {
         rateLimiter: new PostgresRateLimiter(pool, 0.03),
       }),
     );
+  // As behind a trusted proxy (TRUSTED_PROXY=proxy): the proxy appended the real address last.
+  process.env.TRUSTED_PROXY = "proxy";
+  afterAll(() => {
+    delete process.env.TRUSTED_PROXY;
+  });
   const from = (address: string, key = secretKey.key, origin?: string) => {
     const r = request(key, origin);
-    r.headers.set("x-forwarded-for", `${address}, 10.0.0.1`);
+    r.headers.set("x-forwarded-for", `203.0.113.250, ${address}`);
     return r;
   };
 
@@ -175,5 +186,42 @@ describe("rate limits", () => {
     for (let i = 0; i < 20; i += 1)
       statuses.add((await route(from(address, generateApiKey("secret")))).status);
     expect(statuses).toEqual(new Set([401, 429]));
+  });
+});
+
+describe("client addresses", () => {
+  const withHeaders = (headers: Record<string, string>) =>
+    new Request("http://api.test/v1/x", { headers });
+
+  it("trust only what the configured proxy sets", () => {
+    const spoofed = withHeaders({
+      "x-forwarded-for": "1.1.1.1, 198.51.100.4",
+      "x-real-ip": "2.2.2.2",
+      "x-vercel-forwarded-for": "203.0.113.9",
+    });
+    expect(clientAddress(spoofed, "vercel")).toBe("203.0.113.9");
+    // Behind your own proxy: the entry it appended, not what the client put in front.
+    expect(clientAddress(spoofed, "proxy")).toBe("198.51.100.4");
+    // No trusted proxy: every address header could be forged, so none is used.
+    expect(clientAddress(spoofed, "none")).toBe("untrusted");
+  });
+
+  it("count an IPv6 client by its /64", () => {
+    const a = clientAddress(withHeaders({ "x-forwarded-for": "2001:db8:1:2:aaaa::1" }), "proxy");
+    const b = clientAddress(withHeaders({ "x-forwarded-for": "2001:db8:1:2:bbbb::9" }), "proxy");
+    expect(a).toBe(b);
+  });
+
+  it("default to vercel on Vercel and to none elsewhere", () => {
+    expect(trustedProxy({ VERCEL: "1" })).toBe("vercel");
+    expect(trustedProxy({})).toBe("none");
+    expect(trustedProxy({ TRUSTED_PROXY: "proxy" })).toBe("proxy");
+  });
+
+  it("hash bucket keys: fixed length, and a crafted value can't reach another bucket", () => {
+    const long = bucketKey(`signin-email:${"a".repeat(320)}@example.com`);
+    expect(long.length).toBeLessThan(100);
+    expect(bucketKey("feed:p1:a:b")).not.toBe(`${bucketKey("feed:p1:a")}:b`);
+    expect(bucketKey("feed:x").startsWith("feed:")).toBe(true);
   });
 });

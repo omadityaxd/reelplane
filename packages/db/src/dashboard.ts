@@ -267,3 +267,19 @@ export function listRenditions(
     }));
   });
 }
+
+/**
+ * Shows a video hidden by reports again and clears its reports (so the same reporters don't
+ * hide it straight away). Returns false if the project has no such hidden video.
+ */
+export function unhideVideo(pool: Pool, projectId: string, videoId: string): Promise<boolean> {
+  return withTenant(pool, { projectId }, async (client) => {
+    const result = await client.query(
+      "update reelplane.videos set hidden_at = null where id = $1 and hidden_at is not null",
+      [videoId],
+    );
+    if (result.rowCount !== 1) return false;
+    await client.query("delete from reelplane.video_reports where video_id = $1", [videoId]);
+    return true;
+  });
+}

@@ -31,6 +31,8 @@ export interface Video {
   createdAt: Date;
   updatedAt: Date;
   readyAt: Date | null;
+  /** Set when viewer reports hid the video from feeds (see unhideVideo). */
+  hiddenAt: Date | null;
 }
 
 interface VideoRow {
@@ -61,12 +63,14 @@ interface VideoRow {
   created_at: Date;
   updated_at: Date;
   ready_at: Date | null;
+  hidden_at: Date | null;
 }
 
 const VIDEO_COLUMNS = `id, project_id, status, failure_reason, creator_id, title, content_type,
   size_bytes, source_key, upload_id, upload_expires_at, part_size_bytes, original_filename,
   declared_duration_ms, duration_ms, width, height, master_playlist_key, poster_key,
-  thumbnail_keys, placeholder, is_showcase, likes_count, metadata, created_at, updated_at, ready_at`;
+  thumbnail_keys, placeholder, is_showcase, likes_count, metadata, created_at, updated_at, ready_at,
+  hidden_at`;
 
 function toVideo(row: VideoRow): Video {
   return {
@@ -98,6 +102,7 @@ function toVideo(row: VideoRow): Video {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     readyAt: row.ready_at,
+    hiddenAt: row.hidden_at,
   };
 }
 

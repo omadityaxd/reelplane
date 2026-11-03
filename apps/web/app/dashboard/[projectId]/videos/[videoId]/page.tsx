@@ -21,6 +21,7 @@ import { serializeVideo } from "@/lib/server/videos/serialize.ts";
 import { DeleteVideo } from "../../../_components/delete-video.tsx";
 import { LiveRefresh } from "../../../_components/live-refresh.tsx";
 import { PreviewPlayer } from "../../../_components/preview-player.tsx";
+import { UnhideVideo } from "../../../_components/unhide-video.tsx";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const IN_PROGRESS = new Set(["uploading", "queued", "processing"]);
@@ -169,6 +170,15 @@ export default async function VideoPage({
         {video.status !== "deleted" && <DeleteVideo projectId={project.id} videoId={video.id} />}
       </div>
       <p className="mono dash-note">{video.id}</p>
+      {video.hiddenAt && (
+        <div className="dash-secret dash-row dash-row--between" role="status">
+          <span>
+            Hidden from feeds since {formatDate(video.hiddenAt)}: three viewers reported it. Review
+            it, then delete it or show it again.
+          </span>
+          <UnhideVideo projectId={project.id} videoId={video.id} />
+        </div>
+      )}
       <div className="dash-grid">
         <section className="dash-card">
           {playback ? (

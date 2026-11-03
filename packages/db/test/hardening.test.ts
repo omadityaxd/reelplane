@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { getFeed, reportVideo, takeDemoUploadQuota, withTenant, withWorker } from "../src/index.ts";
+import {
+  getFeed,
+  reportVideo,
+  takeDemoUploadQuota,
+  unhideVideo,
+  withTenant,
+  withWorker,
+} from "../src/index.ts";
 import { insertVideo, newProject, useTestPool } from "./helpers.ts";
 
 const pool = useTestPool();
@@ -38,6 +45,29 @@ describe("reports", () => {
     expect(await feedIds()).toContain(videoId); // two distinct reporters: still shown
     await reportVideo(pool, project.id, videoId, "c", "nudity");
     expect(await feedIds()).not.toContain(videoId);
+  });
+
+  it("never auto-hide a showcase video, and an owner can show a hidden one again", async () => {
+    const { project } = await newProject(pool);
+    const showcase = await readyVideo(project.id);
+    const regular = await readyVideo(project.id);
+    await pool.query("update reelplane.videos set is_showcase = true where id = $1", [showcase]);
+    for (const reporter of ["a", "b", "c"]) {
+      await reportVideo(pool, project.id, showcase, reporter, "spam");
+      await reportVideo(pool, project.id, regular, reporter, "spam");
+    }
+    const visible = async () =>
+      (
+        await getFeed(pool, { projectId: project.id, feed: { kind: "latest" }, limit: 10 })
+      ).videos.map((v) => v.id);
+    expect(await visible()).toEqual([showcase]);
+
+    expect(await unhideVideo(pool, project.id, regular)).toBe(true);
+    expect((await visible()).sort()).toEqual([showcase, regular].sort());
+    expect(await unhideVideo(pool, project.id, regular)).toBe(false); // already visible
+    // Its reports were cleared: one new report doesn't hide it again.
+    await reportVideo(pool, project.id, regular, "a", "spam");
+    expect(await visible()).toContain(regular);
   });
 
   it("cannot report another project's video", async () => {
@@ -78,6 +108,17 @@ describe("demo upload quotas", () => {
     await expect(
       takeDemoUploadQuota(pool, project.id, randomUUID(), { perUser: 1, perDemo: 1 }),
     ).rejects.toThrow("not a demo project");
+  });
+});
+
+describe("SECURITY DEFINER entry points", () => {
+  it("the API role cannot run the cleanup job (worker only)", async () => {
+    const { project } = await newProject(pool);
+    await expect(
+      withTenant(pool, { projectId: project.id }, (client) =>
+        client.query("select reelplane.run_cleanup()"),
+      ),
+    ).rejects.toThrow(/permission denied/);
   });
 });
 

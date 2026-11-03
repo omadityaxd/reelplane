@@ -27,9 +27,21 @@ This document grows phase by phase. Each decision lists the trade-off it accepts
   in an UNLOGGED table needs nothing extra to run. The cost is one small write per request
   (measured under load in BENCHMARKS.md). A Redis limiter can replace it behind the same
   interface. A crash empties the UNLOGGED table, which at worst forgives one window.
-- **Trust in the address:** on Vercel the address comes from headers the platform sets.
-  Behind any other host, a proxy must overwrite `X-Forwarded-For`, or per-address limits can be
-  dodged with a fake header.
+- **Which address to trust is configured, never guessed.** Next's server only fills in
+  `X-Forwarded-For` when the client didn't send one, so without a proxy in front, every address
+  header is client-written. `TRUSTED_PROXY` says who sets it:
+  - `vercel` (the default on Vercel): only `x-vercel-forwarded-for`, which the platform sets.
+  - `proxy`: the last `X-Forwarded-For` entry, the one your own proxy appended.
+  - `none` (the default elsewhere): no header is trusted, and all clients share one bucket.
+    Spoofing then gains nothing, but one busy client limits everyone, so a self-hosted
+    deployment sets `TRUSTED_PROXY`.
+
+  IPv6 clients are counted by /64. Bucket keys are hashed, so no address or email can make one
+  oversized or collide with another bucket. (A security review found the first version trusted
+  the first `X-Forwarded-For` entry, which let one client pose as many: dodging limits and
+  hiding videos with fake reporters.)
+- **Reports never hide a showcase video,** and an owner can review a hidden video in the
+  dashboard and show it again (its reports are cleared).
 
 ### Demo guardrails
 
