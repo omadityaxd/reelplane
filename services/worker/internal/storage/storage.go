@@ -24,6 +24,9 @@ type Store interface {
 	List(ctx context.Context, prefix string) ([]string, error)
 	// DeletePrefix deletes every key under prefix; it returns how many were deleted.
 	DeletePrefix(ctx context.Context, prefix string) (int, error)
+	// AbortMultipart frees the parts of an upload that was never completed. An upload that no
+	// longer exists is not an error.
+	AbortMultipart(ctx context.Context, key, uploadID string) error
 }
 
 // ContentType maps HLS and image outputs to the types players and CDNs expect.

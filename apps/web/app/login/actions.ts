@@ -3,6 +3,8 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { ACTION_RULES, actionAddress, allowAction } from "@/lib/server/dashboard/limits.ts";
+import { safeNext } from "@/lib/server/dashboard/next-path.ts";
 import { supabaseServerClient } from "@/lib/server/dashboard/supabase.ts";
 
 export interface LoginState {
@@ -16,12 +18,21 @@ const emailSchema = z.email().max(320);
 export async function sendMagicLink(_previous: LoginState, form: FormData): Promise<LoginState> {
   const email = emailSchema.safeParse(String(form.get("email") ?? "").trim());
   if (!email.success) return { sent: null, error: "Enter a valid email address." };
+  const inbox = email.data.toLowerCase();
+  if (
+    !(await allowAction(`signin:${await actionAddress()}`, ACTION_RULES.signInPerAddress)) ||
+    !(await allowAction(`signin-email:${inbox}`, ACTION_RULES.signInPerEmail))
+  ) {
+    return { sent: null, error: "Too many sign-in links requested. Try again in an hour." };
+  }
   const origin = await siteOrigin();
   if (!origin)
     return { sent: null, error: "Sign-in isn't fully configured (NEXT_PUBLIC_SITE_URL)." };
   const { error } = await (await supabaseServerClient()).auth.signInWithOtp({
     email: email.data,
-    options: { emailRedirectTo: `${origin}/auth/callback` },
+    options: {
+      emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(safeNext(form.get("next")))}`,
+    },
   });
   if (error) return { sent: null, error: "Couldn't send the link. Try again in a minute." };
   return { sent: email.data, error: null };

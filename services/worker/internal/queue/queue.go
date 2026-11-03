@@ -524,3 +524,37 @@ func nullableFPS(fps float64) any {
 	}
 	return fps
 }
+
+// CleanupReport is what one cleanup run did (see reelplane.run_cleanup, migration 0008).
+type CleanupReport struct {
+	Ran                     bool   `json:"ran"`
+	Reason                  string `json:"reason,omitempty"`
+	DemoVideosDeleted       int    `json:"demoVideosDeleted"`
+	AbandonedUploadsDeleted int    `json:"abandonedUploadsDeleted"`
+	IdempotencyKeysDeleted  int    `json:"idempotencyKeysDeleted"`
+	RateLimitWindowsDeleted int    `json:"rateLimitWindowsDeleted"`
+	QuotaRowsDeleted        int    `json:"quotaRowsDeleted"`
+	// Aborts are the multipart uploads of abandoned sessions, for the caller to abort in storage.
+	Aborts []struct {
+		Key      string `json:"key"`
+		UploadID string `json:"uploadId"`
+	} `json:"aborts"`
+}
+
+// RunCleanup expires demo uploads older than demoMaxAge (showcase videos are kept), deletes
+// abandoned upload sessions, and prunes idempotency keys, rate-limit windows and quota rows.
+// It runs at most once per `every` across all workers; other calls return Ran=false. Deleted
+// videos' files are queued as storage garbage for SweepGarbage, in the same transaction.
+func (q *Queue) RunCleanup(ctx context.Context, every, demoMaxAge time.Duration) (CleanupReport, error) {
+	var raw []byte
+	if err := q.pool.QueryRow(ctx,
+		`select reelplane.run_cleanup(make_interval(secs => $1), make_interval(secs => $2))::text`,
+		every.Seconds(), demoMaxAge.Seconds()).Scan(&raw); err != nil {
+		return CleanupReport{}, fmt.Errorf("run cleanup: %w", err)
+	}
+	var report CleanupReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		return CleanupReport{}, fmt.Errorf("decode cleanup report: %w", err)
+	}
+	return report, nil
+}

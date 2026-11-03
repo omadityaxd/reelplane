@@ -1,4 +1,4 @@
-import { type Pool, withTenant } from "@reelplane/db";
+import { withTenant } from "@reelplane/db";
 import { MemoryObjectStorage } from "@reelplane/storage";
 import { describe, expect, it } from "vitest";
 import type { AppDeps } from "@/lib/server/deps.ts";
@@ -11,6 +11,7 @@ import {
   newProject,
   ORIGIN,
   PEPPER,
+  readyVideo,
   TEST_LIMITS,
   testPool,
 } from "./harness.ts";
@@ -39,47 +40,6 @@ interface FeedBody {
     playback: { hlsUrl: string };
   }[];
   nextCursor: string | null;
-}
-
-/** Inserts a ready video the way the pipeline leaves it, `hoursAgo` old. */
-async function readyVideo(
-  db: Pool,
-  projectId: string,
-  options: {
-    hoursAgo?: number;
-    creatorId?: string;
-    likes?: number;
-    views?: number;
-    completions?: number;
-  } = {},
-): Promise<string> {
-  return withTenant(db, { projectId }, async (client) => {
-    const { rows } = await client.query<{ id: string }>(
-      `insert into reelplane.videos (project_id, content_type, size_bytes, source_key, creator_id)
-       values ($1, 'video/mp4', 1000, 'originals/x', $2) returning id`,
-      [projectId, options.creatorId ?? null],
-    );
-    const id = rows[0]?.id ?? "";
-    for (const status of ["queued", "processing"]) {
-      await client.query("update reelplane.videos set status = $2 where id = $1", [id, status]);
-    }
-    await client.query(
-      `update reelplane.videos
-          set status = 'ready', master_playlist_key = $2, duration_ms = 5000, width = 720, height = 1280,
-              ready_at = now() - make_interval(hours => $3), likes_count = $4, views_count = $5,
-              completions_count = $6
-        where id = $1`,
-      [
-        id,
-        `media/${projectId}/${id}/a1/master.m3u8`,
-        options.hoursAgo ?? 0,
-        options.likes ?? 0,
-        options.views ?? 0,
-        options.completions ?? 0,
-      ],
-    );
-    return id;
-  });
 }
 
 async function getFeed(key: string, feed: string, query = "", origin = ORIGIN): Promise<FeedBody> {

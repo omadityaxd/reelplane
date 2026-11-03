@@ -2,11 +2,14 @@
 
 import { deleteVideo } from "@reelplane/db";
 import { revalidatePath } from "next/cache";
+import { ACTION_RULES, allowAction } from "@/lib/server/dashboard/limits.ts";
 import { requireProject } from "@/lib/server/dashboard/session.ts";
 import { ApiError } from "@/lib/server/errors.ts";
 import { appDeps } from "@/lib/server/routes.ts";
 import { createUploadSchema } from "@/lib/server/uploads/schemas.ts";
 import { createUploadSession } from "@/lib/server/uploads/service.ts";
+
+const TOO_MANY = "Too many changes in a short time. Wait a minute and try again.";
 
 export type DashboardUploadResult =
   | { ok: true; videoId: string; token: string }
@@ -20,7 +23,9 @@ export async function createDashboardUpload(
   projectId: string,
   input: unknown,
 ): Promise<DashboardUploadResult> {
-  await requireProject(projectId);
+  const { user } = await requireProject(projectId);
+  if (!(await allowAction(`dashboard:${user.id}`, ACTION_RULES.dashboardWrite)))
+    return { ok: false, error: TOO_MANY };
   const parsed = createUploadSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "This file type isn't supported (MP4, MOV, WebM or MKV)." };

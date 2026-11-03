@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createPool, createProject, generateApiKey, revokeApiKey } from "@reelplane/db";
 import { afterAll, describe, expect, inject, it } from "vitest";
 import { apiRoute, corsPreflight, json } from "@/lib/server/api-route.ts";
+import { PostgresRateLimiter, type RateLimitRule } from "@/lib/server/rate-limit.ts";
 
 const PEPPER = "web-test-pepper-0123456789abcdef0123";
 const ALLOWED = "https://shop.example.com";
@@ -9,6 +10,7 @@ const ALLOWED = "https://shop.example.com";
 const pool = createPool(inject("databaseUrl"), { max: 4 });
 afterAll(() => pool.end());
 const deps = () => ({ pool, pepper: PEPPER });
+const RULE: RateLimitRule = { name: "test", limit: 100, windowSeconds: 60, by: "credential" };
 
 const { project, publishableKey, secretKey } = await createProject(
   pool,
@@ -18,11 +20,15 @@ const { project, publishableKey, secretKey } = await createProject(
 
 /** A route that echoes the auth context, for both key kinds. */
 const readRoute = apiRoute(
-  { allow: ["secret", "publishable"] },
+  { allow: ["secret", "publishable"], rateLimit: RULE },
   async ({ auth }) => json({ data: auth }),
   deps,
 );
-const writeRoute = apiRoute({ allow: ["secret"] }, async ({ auth }) => json({ data: auth }), deps);
+const writeRoute = apiRoute(
+  { allow: ["secret"], rateLimit: RULE },
+  async ({ auth }) => json({ data: auth }),
+  deps,
+);
 
 function request(key?: string, origin?: string): Request {
   const headers = new Headers();
@@ -107,7 +113,7 @@ describe("API key auth middleware", () => {
 
   it("hides internal errors behind a generic 500", async () => {
     const failing = apiRoute(
-      { allow: ["secret"] },
+      { allow: ["secret"], rateLimit: RULE },
       async () => {
         throw new Error("connection string with password leaked here");
       },
@@ -122,5 +128,52 @@ describe("API key auth middleware", () => {
     } finally {
       console.error = original;
     }
+  });
+});
+
+describe("rate limits", () => {
+  // Scale 0.03: the endpoint rule allows 3 per window, the per-address budget 18.
+  const limited = (rule: RateLimitRule) =>
+    apiRoute(
+      { allow: ["secret", "publishable"], rateLimit: rule },
+      async () => json({ ok: true }),
+      () => ({
+        pool,
+        pepper: PEPPER,
+        rateLimiter: new PostgresRateLimiter(pool, 0.03),
+      }),
+    );
+  const from = (address: string, key = secretKey.key, origin?: string) => {
+    const r = request(key, origin);
+    r.headers.set("x-forwarded-for", `${address}, 10.0.0.1`);
+    return r;
+  };
+
+  it("answers 429 with Retry-After once a key is over its endpoint's limit", async () => {
+    const route = limited({ ...RULE, name: `per-key-${randomUUID()}` });
+    const address = `198.51.100.${Math.floor(Math.random() * 250)}`;
+    const statuses = [];
+    for (let i = 0; i < 4; i += 1) statuses.push((await route(from(address))).status);
+    expect(statuses).toEqual([200, 200, 200, 429]);
+    const blocked = await route(from(address));
+    expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(blocked.headers.get("ratelimit-remaining")).toBe("0");
+    expect(((await blocked.json()) as { error: { code: string } }).error.code).toBe("rate_limited");
+  });
+
+  it("counts browser traffic per viewer address, so one viewer can't block the others", async () => {
+    const route = limited({ ...RULE, name: `per-viewer-${randomUUID()}`, by: "client" });
+    for (let i = 0; i < 3; i += 1) await route(from("203.0.113.7", publishableKey.key, ALLOWED));
+    expect((await route(from("203.0.113.7", publishableKey.key, ALLOWED))).status).toBe(429);
+    expect((await route(from("203.0.113.8", publishableKey.key, ALLOWED))).status).toBe(200);
+  });
+
+  it("limits each address before authentication, so floods of bad keys stay cheap", async () => {
+    const route = limited({ ...RULE, name: `pre-auth-${randomUUID()}` });
+    const address = `192.0.2.${Math.floor(Math.random() * 250)}`;
+    const statuses = new Set<number>();
+    for (let i = 0; i < 20; i += 1)
+      statuses.add((await route(from(address, generateApiKey("secret")))).status);
+    expect(statuses).toEqual(new Set([401, 429]));
   });
 });

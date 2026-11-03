@@ -139,3 +139,51 @@ export function playbackStats(
     };
   });
 }
+
+export const REPORT_REASONS = ["spam", "nudity", "violence", "copyright", "other"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+/**
+ * Records a viewer's report of a ready video (once per reporter; reporting again is a no-op).
+ * Three different reporters hide the video from every feed (trigger, migration 0008).
+ * Returns false if the project has no such ready video.
+ */
+export function reportVideo(
+  pool: Pool,
+  projectId: string,
+  videoId: string,
+  reporter: string,
+  reason: ReportReason,
+): Promise<boolean> {
+  return withTenant(pool, { projectId }, async (client) => {
+    const { rowCount } = await client.query(
+      "select 1 from reelplane.videos where id = $1 and status = 'ready'",
+      [videoId],
+    );
+    if (rowCount !== 1) return false;
+    await client.query(
+      `insert into reelplane.video_reports (video_id, project_id, reporter, reason)
+       values ($1, $2, $3, $4) on conflict do nothing`,
+      [videoId, projectId, reporter, reason],
+    );
+    return true;
+  });
+}
+
+/** Takes one of today's demo uploads for `userId` (see take_demo_upload_quota). */
+export function takeDemoUploadQuota(
+  pool: Pool,
+  projectId: string,
+  userId: string,
+  limits: { perUser: number; perDemo: number },
+): Promise<"ok" | "user_limit" | "demo_limit"> {
+  return withTenant(pool, { projectId }, async (client) => {
+    const { rows } = await client.query<{ result: "ok" | "user_limit" | "demo_limit" }>(
+      "select reelplane.take_demo_upload_quota($1, $2, $3) as result",
+      [userId, limits.perUser, limits.perDemo],
+    );
+    const result = rows[0]?.result;
+    if (!result) throw new Error("take_demo_upload_quota returned no row");
+    return result;
+  });
+}

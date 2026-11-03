@@ -68,6 +68,8 @@ func run() error {
 		HeartbeatInterval: cfg.HeartbeatInterval,
 		PollInterval:      cfg.PollInterval,
 		ShutdownGrace:     cfg.ShutdownGrace,
+		CleanupEvery:      cfg.CleanupEvery,
+		DemoMaxAge:        cfg.DemoMaxAge,
 	}, log)
 	hooks := webhooks.New(pool, webhooks.Options{
 		Client:       webhooks.NewClient(cfg.WebhookTimeout, cfg.WebhookAllowPrivate),

@@ -12,8 +12,11 @@ import {
 } from "@reelplane/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { ACTION_RULES, allowAction } from "@/lib/server/dashboard/limits.ts";
 import { authMode, requireProject } from "@/lib/server/dashboard/session.ts";
 import { db } from "@/lib/server/db.ts";
+
+const TOO_MANY = "Too many changes in a short time. Wait a minute and try again.";
 
 export type WebhookResult = { ok: true; secret?: string } | { ok: false; error: string };
 
@@ -32,7 +35,9 @@ export async function createDashboardWebhook(
   projectId: string,
   input: unknown,
 ): Promise<WebhookResult> {
-  await requireProject(projectId);
+  const { user } = await requireProject(projectId);
+  if (!(await allowAction(`dashboard:${user.id}`, ACTION_RULES.dashboardWrite)))
+    return { ok: false, error: TOO_MANY };
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid endpoint." };
@@ -95,7 +100,8 @@ export async function sendDashboardTestWebhook(
   projectId: string,
   endpointId: string,
 ): Promise<void> {
-  await requireProject(projectId);
+  const { user } = await requireProject(projectId);
+  if (!(await allowAction(`dashboard:${user.id}`, ACTION_RULES.dashboardWrite))) return;
   if (UUID.safeParse(endpointId).success) await sendTestWebhook(db(), projectId, endpointId);
   done(projectId);
 }

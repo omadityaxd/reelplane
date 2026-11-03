@@ -4,6 +4,7 @@ import { badgeClass, formatBytes, formatDate, formatDuration } from "@/lib/dashb
 import { requireProject } from "@/lib/server/dashboard/session.ts";
 import { appDeps } from "@/lib/server/routes.ts";
 import { serializeVideo } from "@/lib/server/videos/serialize.ts";
+import { createDashboardUpload } from "../_actions/videos.ts";
 import { UploadButton } from "../_components/upload-button.tsx";
 
 const PAGE_SIZE = 25;
@@ -30,7 +31,10 @@ export default async function VideosPage({
   return (
     <>
       <section className="dash-card">
-        <UploadButton projectId={project.id} />
+        <UploadButton
+          start={createDashboardUpload.bind(null, project.id)}
+          donePath={`${base}/videos`}
+        />
       </section>
       {page.videos.length === 0 ? (
         <p className="dash-empty">No videos yet. Upload one, or use the API.</p>

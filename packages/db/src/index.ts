@@ -29,8 +29,12 @@ export {
   type PlaybackEventType,
   type PlaybackStats,
   playbackStats,
+  REPORT_REASONS,
+  type ReportReason,
   recordPlaybackEvents,
+  reportVideo,
   setLike,
+  takeDemoUploadQuota,
 } from "./engagement.ts";
 export {
   type FeedInput,

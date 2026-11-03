@@ -3,9 +3,12 @@
 import { createProject, normalizeOrigin, renameProject, setAllowedOrigins } from "@reelplane/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { ACTION_RULES, allowAction } from "@/lib/server/dashboard/limits.ts";
 import { requireProject, requireUser } from "@/lib/server/dashboard/session.ts";
 import { db } from "@/lib/server/db.ts";
 import { apiKeyPepperFromEnv } from "@/lib/server/env.ts";
+
+const TOO_MANY = "Too many changes in a short time. Wait a minute and try again.";
 
 export interface CreatedProjectState {
   error: string | null;
@@ -21,6 +24,8 @@ export async function createDashboardProject(
   form: FormData,
 ): Promise<CreatedProjectState> {
   const user = await requireUser();
+  if (!(await allowAction(`dashboard:${user.id}`, ACTION_RULES.dashboardWrite)))
+    return { error: TOO_MANY, created: null };
   const name = nameSchema.safeParse(form.get("name"));
   if (!name.success)
     return { error: name.error.issues[0]?.message ?? "Invalid name.", created: null };

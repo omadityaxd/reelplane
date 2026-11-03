@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { type LoginState, sendMagicLink } from "./actions.ts";
 
-export function LoginForm({ linkError }: { linkError: boolean }) {
+export function LoginForm({ linkError, next }: { linkError: boolean; next: string }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(sendMagicLink, {
     sent: null,
     error: linkError ? "That sign-in link has expired or was already used. Send a new one." : null,
@@ -17,6 +17,7 @@ export function LoginForm({ linkError }: { linkError: boolean }) {
   }
   return (
     <form action={action} className="dash-form">
+      <input type="hidden" name="next" value={next} />
       <label className="dash-field">
         <span>Email</span>
         <input type="email" name="email" autoComplete="email" required />

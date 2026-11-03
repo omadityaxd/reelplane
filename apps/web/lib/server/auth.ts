@@ -6,6 +6,7 @@ import {
   type Pool,
 } from "@reelplane/db";
 import { ApiError } from "./errors.ts";
+import type { RateLimiter } from "./rate-limit.ts";
 import { isUploadToken } from "./uploads/token.ts";
 
 /** Which credential authenticated the request. */
@@ -36,6 +37,8 @@ export interface AuthOptions {
 export interface AuthDeps {
   pool: Pool;
   pepper: string;
+  /** Absent = no rate limiting (unit tests); production always sets it (routes.ts). */
+  rateLimiter?: RateLimiter | undefined;
 }
 
 const BEARER = /^Bearer\s+(\S+)$/i;

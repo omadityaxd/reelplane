@@ -114,6 +114,9 @@ func (d Dir) DeletePrefix(ctx context.Context, prefix string) (int, error) {
 }
 
 // localFiles lists files under dir as slash-separated relative paths, sorted.
+// AbortMultipart is a no-op: the directory store has no multipart uploads.
+func (d Dir) AbortMultipart(context.Context, string, string) error { return nil }
+
 func localFiles(dir string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(p string, entry fs.DirEntry, err error) error {

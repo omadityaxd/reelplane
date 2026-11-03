@@ -39,11 +39,17 @@ describe("dashboard auth mode", () => {
  * fails here.
  */
 describe("dashboard server actions", () => {
-  const dir = join(import.meta.dirname, "..", "app", "dashboard", "_actions");
-  const files = readdirSync(dir).filter((name) => name.endsWith(".ts"));
+  const app = join(import.meta.dirname, "..", "app");
+  const dir = join(app, "dashboard", "_actions");
+  const files = [
+    ...readdirSync(dir)
+      .filter((name) => name.endsWith(".ts"))
+      .map((name) => join(dir, name)),
+    join(app, "upload", "actions.ts"),
+  ];
 
-  it.each(files)("%s: every exported action checks the caller before anything else", (name) => {
-    const source = readFileSync(join(dir, name), "utf8");
+  it.each(files)("%s: every exported action checks the caller before anything else", (path) => {
+    const source = readFileSync(path, "utf8");
     expect(source.startsWith('"use server";')).toBe(true);
     const actions = [...source.matchAll(/export async function (\w+)\([\s\S]*?\{\n([^\n]*)/g)];
     expect(actions.length).toBeGreaterThan(0);

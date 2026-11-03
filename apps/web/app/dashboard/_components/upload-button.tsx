@@ -3,11 +3,12 @@
 import { uploadVideo } from "@reelplane/sdk-core";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { createDashboardUpload } from "../_actions/videos.ts";
+import type { DashboardUploadResult } from "../_actions/videos.ts";
 
 type Status =
   | { kind: "idle" }
   | { kind: "uploading"; name: string; fraction: number }
+  | { kind: "done"; name: string }
   | { kind: "error"; message: string };
 
 /** Reads a video's duration in the browser, so over-long files are refused before upload. */
@@ -27,14 +28,26 @@ function measureDurationMs(file: File): Promise<number | undefined> {
   });
 }
 
-export function UploadButton({ projectId }: { projectId: string }) {
+export interface UploadButtonProps {
+  /** Server action that starts an upload session (checks who may upload, and where to). */
+  start: (input: unknown) => Promise<DashboardUploadResult>;
+  /** After the upload, go to `${donePath}/${videoId}`; without it, say it's processing. */
+  donePath?: string;
+  note?: string;
+}
+
+export function UploadButton({
+  start,
+  donePath,
+  note = "Up to 60 s and 100 MB.",
+}: UploadButtonProps) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   async function upload(file: File) {
     setStatus({ kind: "uploading", name: file.name, fraction: 0 });
-    const session = await createDashboardUpload(projectId, {
+    const session = await start({
       contentType: file.type || "video/mp4",
       sizeBytes: file.size,
       durationMs: await measureDurationMs(file),
@@ -53,8 +66,12 @@ export function UploadButton({ projectId }: { projectId: string }) {
         onProgress: (progress) =>
           setStatus({ kind: "uploading", name: file.name, fraction: progress.fraction }),
       });
-      setStatus({ kind: "idle" });
-      router.push(`/dashboard/${projectId}/videos/${session.videoId}`);
+      if (donePath) {
+        setStatus({ kind: "idle" });
+        router.push(`${donePath}/${session.videoId}`);
+      } else {
+        setStatus({ kind: "done", name: file.name });
+      }
     } catch (error) {
       setStatus({
         kind: "error",
@@ -99,8 +116,13 @@ export function UploadButton({ projectId }: { projectId: string }) {
           {status.message}
         </p>
       )}
+      {status.kind === "done" && (
+        <p role="status" style={{ margin: 0 }}>
+          {status.name} uploaded. It appears at the top of the feed once processed (about a minute).
+        </p>
+      )}
       <span className="dash-note" style={{ margin: 0 }}>
-        Up to 60 s and 100 MB.
+        {note}
       </span>
     </div>
   );

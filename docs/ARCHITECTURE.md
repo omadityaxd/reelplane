@@ -2,6 +2,64 @@
 
 This document grows phase by phase. Each decision lists the trade-off it accepts.
 
+## Hardening (Phase 7)
+
+### Rate limits on every route, counted in Postgres
+
+- **Every API endpoint declares a rule** (`rateLimit` is a required field of the endpoint
+  options, so an endpoint without one doesn't compile). The rules sit in one table in
+  `lib/server/rate-limit.ts`. Responses carry `RateLimit-Limit/Remaining/Reset`, and a 429
+  carries `Retry-After`.
+- **Two counts per request.** First a per-address budget for the whole API (600/min), checked
+  *before* authentication, so a flood of bad keys costs one cheap write each and never reaches
+  the key lookup. Then the endpoint's rule.
+- **What is counted depends on who calls.**
+  - Browser endpoints (feed, playback events, likes, reports) count per viewer address within
+    the project. A popular app's feed is thousands of viewers on one publishable key, and a
+    per-key limit would throttle the app instead of the abuser.
+  - Server endpoints count per secret key, and upload calls per upload.
+- **Outside the API.**
+  - Magic-link emails are limited per address and per inbox: they cost real sends, and
+    Supabase caps them.
+  - Dashboard writes are limited per user.
+  - `/v1/health` has the per-address budget.
+- **Why Postgres and not Redis:** the brief makes Upstash optional, and a fixed-window counter
+  in an UNLOGGED table needs nothing extra to run. The cost is one small write per request
+  (measured under load in BENCHMARKS.md). A Redis limiter can replace it behind the same
+  interface. A crash empties the UNLOGGED table, which at worst forgives one window.
+- **Trust in the address:** on Vercel the address comes from headers the platform sets.
+  Behind any other host, a proxy must overwrite `X-Forwarded-For`, or per-address limits can be
+  dodged with a fake header.
+
+### Demo guardrails
+
+- **Uploads only for signed-in users**, through the same upload path as the API: 100 MB and
+  60 s, re-checked by ffprobe in the worker.
+- **Quotas: 3 per user per UTC day, 50 for the whole demo.** A quota row is taken *before* the
+  upload starts, inside a function that locks the demo project's row. Concurrent requests
+  queue on the lock instead of all reading "2 of 3 used", so the caps hold under races (tested
+  with parallel requests). A failed upload still uses its slot, which errs on the safe side.
+- **Reports.** Any viewer can report a video. Each address counts once per video, stored only
+  as an HMAC. Three distinct reporters hide the video from every feed (a trigger sets
+  `hidden_at`) until someone reviews it.
+- **Demo uploads are deleted after 7 days.** Showcase videos are kept.
+
+### The cleanup job
+
+One SQL function, `run_cleanup()`, called by every worker's housekeeping. An advisory lock and
+a last-run time make it run at most once per 10 minutes across the whole fleet. In one
+transaction, it:
+
+- deletes expired demo uploads, through the same routine as `DELETE /v1/videos/:id`, so they
+  send `video.deleted` and queue their files for the garbage sweeper;
+- deletes abandoned upload sessions (expired more than an hour ago) and returns their multipart
+  upload ids, so the worker aborts them in storage (parts of an unfinished upload are not
+  objects, so deleting by prefix wouldn't free them);
+- prunes idempotency keys older than 24 h, old rate-limit windows and old quota rows.
+
+It runs in the worker because Vercel's free cron is daily-only. While no worker runs, nothing
+expires; the next worker to start catches up in batches.
+
 ## Dashboard (Phase 6)
 
 Server-rendered Next.js pages under `/dashboard`, with server actions for every change. It reads

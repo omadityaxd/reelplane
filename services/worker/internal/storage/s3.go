@@ -194,6 +194,17 @@ func (s *S3) DeletePrefix(ctx context.Context, prefix string) (int, error) {
 	return len(keys), nil
 }
 
+func (s *S3) AbortMultipart(ctx context.Context, key, uploadID string) error {
+	_, err := s.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		Bucket: &s.bucket, Key: &key, UploadId: &uploadID,
+	})
+	var missing *types.NoSuchUpload
+	if err != nil && !errors.As(err, &missing) {
+		return fmt.Errorf("abort upload %s: %w", key, err)
+	}
+	return nil
+}
+
 func drain(errs <-chan error) []error {
 	var all []error
 	for err := range errs {

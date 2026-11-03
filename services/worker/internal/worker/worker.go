@@ -36,6 +36,10 @@ type Options struct {
 	PollInterval      time.Duration
 	ShutdownGrace     time.Duration
 	ReapInterval      time.Duration
+	// CleanupEvery is how often the fleet runs the cleanup job (0 = never); DemoMaxAge is
+	// how long demo uploads live.
+	CleanupEvery time.Duration
+	DemoMaxAge   time.Duration
 }
 
 type Worker struct {
@@ -182,12 +186,15 @@ func (w *Worker) publish(job *queue.Job, result queue.Result, log *slog.Logger) 
 	log.Info("published", "prefix", result.Prefix, "metrics", result.Metrics)
 }
 
-// housekeeping requeues jobs of dead workers and sweeps storage garbage.
+// housekeeping requeues jobs of dead workers, runs the cleanup job and sweeps storage garbage.
 func (w *Worker) housekeeping(stop context.Context) {
 	if n, err := w.queue.ReapExpired(stop); err != nil && stop.Err() == nil {
 		w.log.Warn("reaping expired leases failed", "error", err)
 	} else if n > 0 {
 		w.log.Info("requeued jobs from dead workers", "count", n)
+	}
+	if w.opts.CleanupEvery > 0 {
+		w.cleanup(stop)
 	}
 	remove := func(ctx context.Context, prefix string) error {
 		_, err := w.store.DeletePrefix(ctx, prefix)
@@ -198,6 +205,30 @@ func (w *Worker) housekeeping(stop context.Context) {
 	} else if n > 0 {
 		w.log.Info("swept storage garbage", "prefixes", n)
 	}
+}
+
+// cleanup expires demo uploads and abandoned upload sessions (their files are swept as garbage
+// right after) and aborts the abandoned sessions' multipart uploads.
+func (w *Worker) cleanup(stop context.Context) {
+	report, err := w.queue.RunCleanup(stop, w.opts.CleanupEvery, w.opts.DemoMaxAge)
+	if err != nil {
+		if stop.Err() == nil {
+			w.log.Warn("cleanup failed", "error", err)
+		}
+		return
+	}
+	if !report.Ran {
+		return
+	}
+	for _, upload := range report.Aborts {
+		if err := w.store.AbortMultipart(stop, upload.Key, upload.UploadID); err != nil {
+			w.log.Warn("aborting an abandoned upload failed", "key", upload.Key, "error", err)
+		}
+	}
+	w.log.Info("cleanup", "demo_videos_deleted", report.DemoVideosDeleted,
+		"abandoned_uploads_deleted", report.AbandonedUploadsDeleted,
+		"idempotency_keys_deleted", report.IdempotencyKeysDeleted,
+		"rate_limit_windows_deleted", report.RateLimitWindowsDeleted)
 }
 
 func (w *Worker) discard(prefix string, log *slog.Logger) {

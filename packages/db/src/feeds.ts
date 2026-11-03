@@ -179,7 +179,7 @@ function chronologicalFeed(pool: Pool, input: FeedInput): Promise<FeedPage> {
   return withTenant(pool, { projectId: input.projectId }, async (client) => {
     const { rows } = await client.query<FeedRow>(
       `select ${COLUMNS} from reelplane.videos
-        where status = 'ready'
+        where status = 'ready' and hidden_at is null
           and ($1::text is null or creator_id = $1)
           and ($2::timestamptz is null or (ready_at, id) < ($2, $3::uuid))
         order by ready_at desc, id desc
@@ -208,7 +208,7 @@ function trendingFeed(pool: Pool, input: FeedInput): Promise<FeedPage> {
     const { rows } = await client.query<FeedRow>(
       `with candidates as (
          select ${COLUMNS} from reelplane.videos
-          where status = 'ready' and ready_at <= $1::timestamptz
+          where status = 'ready' and hidden_at is null and ready_at <= $1::timestamptz
             and ready_at > $1::timestamptz - make_interval(days => $4)
           order by ready_at desc
           limit $5

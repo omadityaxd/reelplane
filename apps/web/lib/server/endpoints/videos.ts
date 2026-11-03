@@ -3,6 +3,7 @@ import { z } from "zod";
 import { json } from "../api-route.ts";
 import { endpoint } from "../endpoint.ts";
 import { ApiError } from "../errors.ts";
+import { RULES } from "../rate-limit.ts";
 import { parseBody } from "../uploads/schemas.ts";
 import { serializeVideo } from "../videos/serialize.ts";
 
@@ -23,7 +24,7 @@ const listQuerySchema = z.strictObject({
 
 /** GET /v1/project — the project the API key belongs to. Works with either key kind. */
 export const getCurrentProject = endpoint(
-  { allow: ["secret", "publishable"] },
+  { allow: ["secret", "publishable"], rateLimit: RULES.project },
   async ({ auth, deps }) => {
     const project = await getProject(deps.pool, auth.projectId);
     if (!project) throw new ApiError("not_found", "Project not found.");
@@ -40,7 +41,7 @@ export const getCurrentProject = endpoint(
 
 /** GET /v1/videos — the project's videos, newest first, cursor-paginated (secret key). */
 export const listProjectVideos = endpoint(
-  { allow: ["secret"] },
+  { allow: ["secret"], rateLimit: RULES.readVideos },
   async ({ request, auth, deps }) => {
     const query = parseBody(listQuerySchema, Object.fromEntries(new URL(request.url).searchParams));
     try {
@@ -57,13 +58,16 @@ export const listProjectVideos = endpoint(
 );
 
 /** GET /v1/videos/:id — one video with its status and, once ready, playback URLs. */
-export const getProjectVideo = endpoint({ allow: ["secret"] }, async ({ auth, deps, params }) => {
-  const id = params.id ?? "";
-  // RLS already hides other projects' videos; a malformed id is simply not found.
-  const video = UUID.test(id) ? await getVideo(deps.pool, auth.projectId, id) : null;
-  if (!video || video.status === "deleted") throw new ApiError("not_found", "Video not found.");
-  return json({ data: serializeVideo(video, deps.storage) });
-});
+export const getProjectVideo = endpoint(
+  { allow: ["secret"], rateLimit: RULES.readVideos },
+  async ({ auth, deps, params }) => {
+    const id = params.id ?? "";
+    // RLS already hides other projects' videos; a malformed id is simply not found.
+    const video = UUID.test(id) ? await getVideo(deps.pool, auth.projectId, id) : null;
+    if (!video || video.status === "deleted") throw new ApiError("not_found", "Video not found.");
+    return json({ data: serializeVideo(video, deps.storage) });
+  },
+);
 
 /**
  * DELETE /v1/videos/:id — deletes a video at any stage: it leaves feeds at once, a queued job is
@@ -71,7 +75,7 @@ export const getProjectVideo = endpoint({ allow: ["secret"] }, async ({ auth, de
  * worker shortly after. Deleting it again answers 404.
  */
 export const deleteProjectVideo = endpoint(
-  { allow: ["secret"] },
+  { allow: ["secret"], rateLimit: RULES.deleteVideo },
   async ({ auth, deps, params }) => {
     const id = params.id ?? "";
     const previous = UUID.test(id) ? await deleteVideo(deps.pool, auth.projectId, id) : null;

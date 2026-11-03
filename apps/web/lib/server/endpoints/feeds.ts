@@ -1,9 +1,12 @@
+import { createHmac } from "node:crypto";
 import {
   COMPLETION_THRESHOLD,
   type FeedSpec,
   type FeedVideo,
   getFeed,
+  REPORT_REASONS,
   recordPlaybackEvents,
+  reportVideo,
   setLike,
 } from "@reelplane/db";
 import type { ObjectStorage } from "@reelplane/storage";
@@ -12,6 +15,7 @@ import { json, readJson } from "../api-route.ts";
 import { MemoryCache } from "../cache.ts";
 import { endpoint } from "../endpoint.ts";
 import { ApiError } from "../errors.ts";
+import { clientAddress, RULES } from "../rate-limit.ts";
 import { parseBody } from "../uploads/schemas.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -95,7 +99,7 @@ const feedQuerySchema = z.strictObject({
  * from the project's allowed origins. Pages are cached for 10 s per server instance.
  */
 export const getFeedPage = endpoint(
-  { allow: ["publishable", "secret"] },
+  { allow: ["publishable", "secret"], rateLimit: RULES.feed },
   async ({ request, auth, deps, params }) => {
     const feed = parseFeed(params.feed ?? "");
     const query = parseBody(feedQuerySchema, Object.fromEntries(new URL(request.url).searchParams));
@@ -147,7 +151,7 @@ const eventsSchema = z.strictObject({ events: z.array(eventSchema).min(1).max(10
  * key as `?key=`, because the final flush on page unload cannot send an Authorization header.
  */
 export const ingestPlaybackEvents = endpoint(
-  { allow: ["publishable", "secret"], allowQueryKey: true },
+  { allow: ["publishable", "secret"], allowQueryKey: true, rateLimit: RULES.playbackEvents },
   async ({ request, auth, deps }) => {
     const { events } = parseBody(eventsSchema, await readJson(request));
     const accepted = await recordPlaybackEvents(deps.pool, auth.projectId, events);
@@ -158,17 +162,42 @@ export const ingestPlaybackEvents = endpoint(
 const likeSchema = z.strictObject({ viewerId: z.string().trim().min(1).max(200) });
 
 function likeEndpoint(liked: boolean) {
-  return endpoint({ allow: ["publishable", "secret"] }, async ({ request, auth, deps, params }) => {
-    const id = params.id ?? "";
-    const { viewerId } = parseBody(likeSchema, await readJson(request));
-    const likesCount = UUID.test(id)
-      ? await setLike(deps.pool, auth.projectId, id, viewerId, liked)
-      : null;
-    if (likesCount === null) throw new ApiError("not_found", "Video not found.");
-    return json({ data: { videoId: id, liked, likesCount } });
-  });
+  return endpoint(
+    { allow: ["publishable", "secret"], rateLimit: RULES.like },
+    async ({ request, auth, deps, params }) => {
+      const id = params.id ?? "";
+      const { viewerId } = parseBody(likeSchema, await readJson(request));
+      const likesCount = UUID.test(id)
+        ? await setLike(deps.pool, auth.projectId, id, viewerId, liked)
+        : null;
+      if (likesCount === null) throw new ApiError("not_found", "Video not found.");
+      return json({ data: { videoId: id, liked, likesCount } });
+    },
+  );
 }
 
 /** POST /v1/videos/:id/likes and DELETE — idempotent per (video, viewerId). */
 export const likeVideo = likeEndpoint(true);
 export const unlikeVideo = likeEndpoint(false);
+
+const reportSchema = z.strictObject({ reason: z.enum(REPORT_REASONS) });
+
+/**
+ * POST /v1/videos/:id/reports — a viewer reports a video (the feed's report button). Each
+ * address counts once per video, stored only as an HMAC; three reports hide it from feeds.
+ */
+export const reportFeedVideo = endpoint(
+  { allow: ["publishable", "secret"], rateLimit: RULES.report },
+  async ({ request, auth, deps, params }) => {
+    const id = params.id ?? "";
+    const { reason } = parseBody(reportSchema, await readJson(request));
+    const reporter = createHmac("sha256", deps.pepper)
+      .update(`report:${auth.projectId}:${clientAddress(request)}`)
+      .digest("base64url");
+    const found = UUID.test(id)
+      ? await reportVideo(deps.pool, auth.projectId, id, reporter, reason)
+      : false;
+    if (!found) throw new ApiError("not_found", "Video not found.");
+    return json({ data: { videoId: id, reported: true } }, { status: 202 });
+  },
+);
