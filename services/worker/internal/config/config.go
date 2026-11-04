@@ -176,7 +176,7 @@ func loadStorage(env getenv) Storage {
 	provider := firstNonEmpty(env("STORAGE_PROVIDER"), "s3")
 	pathStyle, err := strconv.ParseBool(env("STORAGE_FORCE_PATH_STYLE"))
 	if err != nil {
-		pathStyle = provider == "local"
+		pathStyle = provider == "local" || provider == "supabase"
 	}
 	return Storage{
 		Provider:        provider,

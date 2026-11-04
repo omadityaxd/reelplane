@@ -34,6 +34,7 @@ export default async function VideosPage({
         <UploadButton
           start={createDashboardUpload.bind(null, project.id)}
           donePath={`${base}/videos`}
+          maxBytes={deps.limits.maxBytes}
         />
       </section>
       {page.videos.length === 0 ? (

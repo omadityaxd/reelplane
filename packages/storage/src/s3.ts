@@ -298,6 +298,11 @@ export interface EnsureBucketResult {
   created: boolean;
   /** null when the public-read policy was applied, else why it could not be. */
   publicReadError: string | null;
+  /**
+   * Why CORS rules couldn't be set, or null. Supabase Storage has no PutBucketCors (it manages
+   * CORS itself), so this is reported rather than thrown.
+   */
+  corsError: string | null;
 }
 
 /** One-off bucket administration used by `pnpm infra:init`; not part of the runtime interface. */
@@ -314,24 +319,29 @@ export async function ensureBucket(
     await client.send(new CreateBucketCommand({ Bucket: bucket }));
     created = true;
   }
-  await client.send(
-    new PutBucketCorsCommand({
-      Bucket: bucket,
-      CORSConfiguration: {
-        CORSRules: [
-          {
-            AllowedOrigins: allowedOrigins,
-            AllowedMethods: ["GET", "HEAD", "PUT"],
-            AllowedHeaders: ["*"],
-            // The browser needs the part ETag to complete a multipart upload.
-            ExposeHeaders: ["ETag"],
-            MaxAgeSeconds: 3600,
-          },
-        ],
-      },
-    }),
-  );
-  return { created, publicReadError: await allowPublicMediaReads(client, bucket) };
+  let corsError: string | null = null;
+  await client
+    .send(
+      new PutBucketCorsCommand({
+        Bucket: bucket,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              AllowedOrigins: allowedOrigins,
+              AllowedMethods: ["GET", "HEAD", "PUT"],
+              AllowedHeaders: ["*"],
+              // The browser needs the part ETag to complete a multipart upload.
+              ExposeHeaders: ["ETag"],
+              MaxAgeSeconds: 3600,
+            },
+          ],
+        },
+      }),
+    )
+    .catch((error: unknown) => {
+      corsError = error instanceof Error ? error.message : String(error);
+    });
+  return { created, corsError, publicReadError: await allowPublicMediaReads(client, bucket) };
 }
 
 /**

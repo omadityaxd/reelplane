@@ -3,6 +3,10 @@ import Link from "next/link";
 import { UploadButton } from "@/app/dashboard/_components/upload-button.tsx";
 import { authMode, currentUser } from "@/lib/server/dashboard/session.ts";
 import { DEMO_LIMITS, workerOnline } from "@/lib/server/demo.ts";
+import { DEFAULT_UPLOAD_LIMITS } from "@/lib/server/uploads/limits.ts";
+
+const MAX_MB = Math.floor(DEFAULT_UPLOAD_LIMITS.maxBytes / (1024 * 1024));
+
 import "../dashboard/dashboard.css";
 import { createDemoUpload } from "./actions.ts";
 
@@ -19,8 +23,8 @@ export default async function UploadPage() {
       <h1>Upload your own reel</h1>
       <p className="dash-note">
         It goes through the real pipeline: straight to storage, transcoded by the worker into an HLS
-        ladder, then into the demo feed. Up to 60 s and 100 MB, {DEMO_LIMITS.perUserPerDay} a day.
-        Demo uploads are deleted after 7 days, and anyone can report one.
+        ladder, then into the demo feed. Up to 60 s and {MAX_MB} MB, {DEMO_LIMITS.perUserPerDay} a
+        day. Demo uploads are deleted after 7 days, and anyone can report one.
       </p>
       {!online && (
         <p className="dash-secret" role="status">

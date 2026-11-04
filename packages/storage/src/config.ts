@@ -16,7 +16,7 @@ const booleanString = z
   .transform((value) => value === "true" || value === "1");
 
 const storageEnvSchema = z.object({
-  STORAGE_PROVIDER: z.enum(["local", "b2", "r2", "s3"]),
+  STORAGE_PROVIDER: z.enum(["local", "supabase", "b2", "r2", "s3"]),
   STORAGE_ENDPOINT: z.url(),
   STORAGE_REGION: z.string().min(1),
   STORAGE_BUCKET: z.string().min(3).max(63),
@@ -70,8 +70,10 @@ export function loadStorageConfig(env: Env = process.env): StorageConfig {
   }
 
   const value = parsed.data;
-  // Path-style is required by RustFS/MinIO; virtual-host style is the norm elsewhere.
-  const forcePathStyle = value.STORAGE_FORCE_PATH_STYLE ?? value.STORAGE_PROVIDER === "local";
+  // Path-style is required by RustFS/MinIO and Supabase Storage; virtual-host style elsewhere.
+  const forcePathStyle =
+    value.STORAGE_FORCE_PATH_STYLE ??
+    (value.STORAGE_PROVIDER === "local" || value.STORAGE_PROVIDER === "supabase");
   const endpoint = value.STORAGE_ENDPOINT.replace(/\/+$/, "");
 
   return {

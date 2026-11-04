@@ -34,18 +34,26 @@ export interface UploadButtonProps {
   /** After the upload, go to `${donePath}/${videoId}`; without it, say it's processing. */
   donePath?: string;
   note?: string;
+  /** Checked in the browser too, so an oversized file fails before anything is uploaded. */
+  maxBytes?: number;
 }
 
 export function UploadButton({
   start,
   donePath,
-  note = "Up to 60 s and 100 MB.",
+  note,
+  maxBytes = 100 * 1024 * 1024,
 }: UploadButtonProps) {
+  const maxMb = Math.floor(maxBytes / (1024 * 1024));
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   async function upload(file: File) {
+    if (file.size > maxBytes) {
+      setStatus({ kind: "error", message: `${file.name} is over the ${maxMb} MB limit.` });
+      return;
+    }
     setStatus({ kind: "uploading", name: file.name, fraction: 0 });
     const session = await start({
       contentType: file.type || "video/mp4",
@@ -122,7 +130,7 @@ export function UploadButton({
         </p>
       )}
       <span className="dash-note" style={{ margin: 0 }}>
-        {note}
+        {note ?? `Up to 60 s and ${maxMb} MB.`}
       </span>
     </div>
   );

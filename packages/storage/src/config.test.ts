@@ -36,6 +36,23 @@ describe("loadStorageConfig", () => {
     expect(config.publicBaseUrl).toBe("https://reelplane-demo.s3.us-west-004.backblazeb2.com");
   });
 
+  it("targets Supabase Storage with path-style addressing and its public object URL", () => {
+    const config = loadStorageConfig({
+      STORAGE_PROVIDER: "supabase",
+      STORAGE_ENDPOINT: "https://abcd.supabase.co/storage/v1/s3",
+      STORAGE_REGION: "ap-south-1",
+      STORAGE_BUCKET: "reelplane",
+      STORAGE_ACCESS_KEY_ID: "key-id",
+      STORAGE_SECRET_ACCESS_KEY: "secret",
+      STORAGE_PUBLIC_BASE_URL: "https://abcd.supabase.co/storage/v1/object/public/reelplane",
+    });
+    expect(config.provider).toBe("supabase");
+    expect(config.forcePathStyle).toBe(true);
+    expect(config.publicBaseUrl).toBe(
+      "https://abcd.supabase.co/storage/v1/object/public/reelplane",
+    );
+  });
+
   it("prefers an explicit public (CDN) base URL", () => {
     const config = loadStorageConfig({
       ...b2Env,

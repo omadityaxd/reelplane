@@ -18,8 +18,17 @@ export interface UploadLimits {
   maxPartsPerRequest: number;
 }
 
+/**
+ * UPLOAD_MAX_BYTES lowers the 100 MB cap when the storage provider has a smaller per-file limit
+ * (Supabase's free plan: 50 MB).
+ */
+function maxUploadBytes(): number {
+  const value = Number(process.env.UPLOAD_MAX_BYTES ?? 100 * MIB);
+  return Number.isInteger(value) && value > 0 ? Math.min(value, 100 * MIB) : 100 * MIB;
+}
+
 export const DEFAULT_UPLOAD_LIMITS: UploadLimits = {
-  maxBytes: 100 * MIB,
+  maxBytes: maxUploadBytes(),
   maxDurationMs: 60_000,
   partSizeBytes: 8 * MIB,
   partUrlTtlSeconds: 15 * 60,

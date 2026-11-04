@@ -19,14 +19,16 @@ const origins = (process.env.ALLOWED_UPLOAD_ORIGINS ?? "http://localhost:3000")
   .filter(Boolean);
 
 try {
-  const { created, publicReadError } = await ensureBucket(
+  const { created, corsError, publicReadError } = await ensureBucket(
     createS3Client(config),
     config.bucket,
     origins,
   );
   process.stdout.write(
     `${created ? "Created" : "Found"} bucket "${config.bucket}" on ${config.provider} (${config.endpoint}); ` +
-      `CORS allows ${origins.join(", ")}\n`,
+      (corsError === null
+        ? `CORS allows ${origins.join(", ")}\n`
+        : `could not set CORS rules (${corsError}); the provider must allow these origins itself.\n`),
   );
   process.stdout.write(
     publicReadError === null
