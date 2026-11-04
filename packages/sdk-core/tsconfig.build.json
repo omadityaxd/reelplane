@@ -5,8 +5,9 @@
     "allowImportingTsExtensions": false,
     "rewriteRelativeImportExtensions": true,
     "declaration": true,
-    "declarationMap": true,
+    // Maps carry their sources: src/ isn't published, so a map pointing at it would be broken.
     "sourceMap": true,
+    "inlineSources": true,
     "outDir": "dist",
     "rootDir": "src"
   },

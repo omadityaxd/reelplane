@@ -558,3 +558,11 @@ func (q *Queue) RunCleanup(ctx context.Context, every, demoMaxAge time.Duration)
 	}
 	return report, nil
 }
+
+// Seen records that a worker is alive, for the app's "uploads are waiting" status.
+func (q *Queue) Seen(ctx context.Context) error {
+	if _, err := q.pool.Exec(ctx, `select reelplane.worker_seen()`); err != nil {
+		return fmt.Errorf("record worker presence: %w", err)
+	}
+	return nil
+}

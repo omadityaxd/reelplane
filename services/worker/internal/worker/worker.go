@@ -188,6 +188,9 @@ func (w *Worker) publish(job *queue.Job, result queue.Result, log *slog.Logger) 
 
 // housekeeping requeues jobs of dead workers, runs the cleanup job and sweeps storage garbage.
 func (w *Worker) housekeeping(stop context.Context) {
+	if err := w.queue.Seen(stop); err != nil && stop.Err() == nil {
+		w.log.Warn("recording presence failed", "error", err)
+	}
 	if n, err := w.queue.ReapExpired(stop); err != nil && stop.Err() == nil {
 		w.log.Warn("reaping expired leases failed", "error", err)
 	} else if n > 0 {

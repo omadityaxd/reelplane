@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { UploadButton } from "@/app/dashboard/_components/upload-button.tsx";
 import { authMode, currentUser } from "@/lib/server/dashboard/session.ts";
-import { DEMO_LIMITS } from "@/lib/server/demo.ts";
+import { DEMO_LIMITS, workerOnline } from "@/lib/server/demo.ts";
 import "../dashboard/dashboard.css";
 import { createDemoUpload } from "./actions.ts";
 
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Upload a reel · Reelplane" };
 export const dynamic = "force-dynamic";
 
 export default async function UploadPage() {
-  const user = await currentUser();
+  const [user, online] = await Promise.all([currentUser(), workerOnline()]);
   return (
     <main className="dash dash-login" style={{ paddingTop: "10vh" }}>
       <p>
@@ -22,6 +22,13 @@ export default async function UploadPage() {
         ladder, then into the demo feed. Up to 60 s and 100 MB, {DEMO_LIMITS.perUserPerDay} a day.
         Demo uploads are deleted after 7 days, and anyone can report one.
       </p>
+      {!online && (
+        <p className="dash-secret" role="status">
+          The transcoding worker is offline right now (it runs on the author's laptop). Your upload
+          is stored and queued, and appears in the feed once the worker is back. The feed itself
+          works either way: its videos are already processed.
+        </p>
+      )}
       {user ? (
         <section className="dash-card">
           <UploadButton

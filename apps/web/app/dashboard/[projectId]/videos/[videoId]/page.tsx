@@ -16,6 +16,7 @@ import {
   statusTone,
 } from "@/lib/dashboard/format.ts";
 import { requireProject } from "@/lib/server/dashboard/session.ts";
+import { workerOnline } from "@/lib/server/demo.ts";
 import { appDeps } from "@/lib/server/routes.ts";
 import { serializeVideo } from "@/lib/server/videos/serialize.ts";
 import { DeleteVideo } from "../../../_components/delete-video.tsx";
@@ -157,6 +158,7 @@ export default async function VideoPage({
     listRenditions(deps.pool, project.id, video.id),
   ]);
   const playback = serializeVideo(video, deps.storage).playback;
+  const waitingForWorker = video.status === "queued" && !(await workerOnline());
   const job = jobs[0];
 
   return (
@@ -170,6 +172,12 @@ export default async function VideoPage({
         {video.status !== "deleted" && <DeleteVideo projectId={project.id} videoId={video.id} />}
       </div>
       <p className="mono dash-note">{video.id}</p>
+      {waitingForWorker && (
+        <p className="dash-secret" role="status">
+          No transcoding worker is running, so this video waits in the queue. Start one (
+          <code>pnpm worker:dev</code> or <code>pnpm worker:up</code>) and it picks it up.
+        </p>
+      )}
       {video.hiddenAt && (
         <div className="dash-secret dash-row dash-row--between" role="status">
           <span>

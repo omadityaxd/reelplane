@@ -63,6 +63,13 @@ export {
   resolvePepper,
 } from "./keys.ts";
 export {
+  type CleanupReport,
+  type GarbageItem,
+  runCleanup,
+  sweepGarbage,
+  workerLastSeen,
+} from "./maintenance.ts";
+export {
   createPool,
   LOCAL_DATABASE_URL,
   type Pool,

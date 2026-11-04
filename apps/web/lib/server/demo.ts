@@ -1,5 +1,5 @@
 import "server-only";
-import { authenticateApiKey } from "@reelplane/db";
+import { authenticateApiKey, workerLastSeen } from "@reelplane/db";
 import { db } from "./db.ts";
 import { apiKeyPepperFromEnv } from "./env.ts";
 
@@ -19,4 +19,20 @@ export function demoProjectId(): Promise<string | null> {
     (auth) => auth?.projectId ?? null,
   );
   return demoProject;
+}
+
+/** A worker stamps its presence every ~20 s; older than this, treat it as off. */
+const WORKER_ONLINE_WITHIN_MS = 2 * 60_000;
+
+/**
+ * Whether a transcoding worker is running. The demo's worker runs on the author's laptop, so
+ * it is often off: uploads then wait in the queue, and the pages say so.
+ */
+export async function workerOnline(): Promise<boolean> {
+  try {
+    const seen = await workerLastSeen(db());
+    return seen !== null && Date.now() - seen.getTime() < WORKER_ONLINE_WITHIN_MS;
+  } catch {
+    return false;
+  }
 }
