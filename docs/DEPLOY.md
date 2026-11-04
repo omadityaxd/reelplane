@@ -76,12 +76,42 @@ local `.env.production` (gitignored) used to migrate and seed. Nothing goes in g
    - **Session pooler** (port **5432**) → `DATABASE_URL` in your local `.env.production`, for
      migrations, seeding and the worker. The worker holds row locks and sets its role per
      connection, which needs session mode.
-3. Tell me when they're in. I run `pnpm db:migrate` against it and check the RLS roles were
-   created (Supabase's `postgres` user can create roles; I'll verify).
+3. Put the **session pooler** string in `.env.production` as `DATABASE_URL`, and keep the
+   transaction pooler string for Vercel (section 4). Then tell me: I run the migrations against
+   it and check the RLS roles were created. Supabase's `postgres` user should be able to
+   create roles; I'll verify.
 
-### 3b. Storage
+### 3b. Storage: Supabase Storage (option A, chosen)
 
-Instructions follow once you've picked A, B or C (section 1).
+1. **Create the bucket.** Supabase dashboard → **Storage** → **New bucket**:
+   - **Name:** `reelplane`.
+   - **Public bucket:** on. Players read the HLS files directly.
+   - **Restrict file size:** on, **50 MB** (the free plan's maximum).
+   - **Allowed MIME types:** leave empty. The bucket holds videos, playlists, segments and
+     images.
+2. **Turn on S3 access.** Storage → **Settings** (or Project Settings → Storage) → **S3
+   Connection**:
+   - Enable "Connection via S3 protocol" if it's off.
+   - Copy the **Endpoint**, like `https://<ref>.supabase.co/storage/v1/s3`.
+   - Copy the **Region**, like `ap-south-1`.
+3. **Create an S3 access key.** In the same section → **New access key**, name it
+   `reelplane`. Copy the **Access key ID** and the **Secret access key**; the secret is shown
+   once.
+4. **Fill in `.env.production`** (repo root, gitignored):
+
+   | Variable                    | Value                                                          |
+   | --------------------------- | -------------------------------------------------------------- |
+   | `STORAGE_PROVIDER`          | `supabase` (already filled in)                                 |
+   | `STORAGE_ENDPOINT`          | the Endpoint from step 2                                       |
+   | `STORAGE_REGION`            | the Region from step 2                                         |
+   | `STORAGE_BUCKET`            | `reelplane` (already filled in)                                |
+   | `STORAGE_ACCESS_KEY_ID`     | from step 3                                                    |
+   | `STORAGE_SECRET_ACCESS_KEY` | from step 3                                                    |
+   | `STORAGE_PUBLIC_BASE_URL`   | `https://<ref>.supabase.co/storage/v1/object/public/reelplane` |
+   | `UPLOAD_MAX_BYTES`          | `52428800` (50 MB, already filled in)                          |
+
+Then tell me. Before anything else uses it, I check that a browser can upload in parts straight
+to it (Supabase manages CORS itself) and that a published playlist plays from the public URL.
 
 ## 4. Vercel checklist (`apps/web`)
 
@@ -125,8 +155,8 @@ configured the route answers 503.
 - **Redirect URLs:** add `https://<your-app>.vercel.app/auth/callback`. Keep
   `http://localhost:3000/**` for local development.
 
-**After the first deploy:** add `https://<your-app>.vercel.app` to the demo project's allowed
-origins (the production seed does it) and to the storage bucket's CORS (B and C).
+**After the first deploy:** the production seed adds `https://<your-app>.vercel.app` to the demo
+project's allowed origins. Supabase Storage needs no CORS setup; B and C would.
 
 ## 5. Seeding production
 
