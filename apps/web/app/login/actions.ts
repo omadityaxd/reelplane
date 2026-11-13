@@ -1,11 +1,14 @@
 "use server";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { githubSignIn } from "@/lib/server/dashboard/github.ts";
 import { ACTION_RULES, actionAddress, allowAction } from "@/lib/server/dashboard/limits.ts";
 import { safeNext } from "@/lib/server/dashboard/next-path.ts";
+import { authMode } from "@/lib/server/dashboard/session.ts";
 import { supabaseServerClient } from "@/lib/server/dashboard/supabase.ts";
+import { TEST_SESSION_COOKIE } from "@/lib/server/dashboard/test-auth.ts";
 
 export interface LoginState {
   sent: string | null;
@@ -52,7 +55,30 @@ async function siteOrigin(): Promise<string | null> {
   return `${proto}://${host}`;
 }
 
+/**
+ * Sign in with GitHub: Supabase redirects to GitHub, GitHub back to Supabase, Supabase to
+ * /auth/callback with a one-time code (PKCE; the verifier is in this browser's cookies). In test
+ * mode the GitHub step is a local consent page instead (app/auth/test-github).
+ */
+export async function signInWithGitHub(form: FormData): Promise<void> {
+  const next = safeNext(form.get("next"));
+  const mode = authMode();
+  if (mode === "test") redirect(`/auth/test-github?next=${encodeURIComponent(next)}`);
+  if (mode !== "supabase") redirect(next);
+  const origin = await siteOrigin();
+  if (!origin) redirect("/login?error=config");
+  const { data, error } = await (await supabaseServerClient()).auth.signInWithOAuth(
+    githubSignIn(origin, next),
+  );
+  if (error || !data.url) redirect("/login?error=github");
+  redirect(data.url);
+}
+
 export async function signOut(): Promise<void> {
-  await (await supabaseServerClient()).auth.signOut();
+  if (authMode() === "test") {
+    (await cookies()).delete(TEST_SESSION_COOKIE);
+  } else {
+    await (await supabaseServerClient()).auth.signOut();
+  }
   redirect("/login");
 }

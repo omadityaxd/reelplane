@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         ) : (
           <>
             <span className="dash-note" style={{ margin: 0 }}>
-              {user.email}
+              {user.githubLogin ? `@${user.githubLogin}` : user.email}
             </span>
             <form action={signOut}>
               <button type="submit" className="dash-button">

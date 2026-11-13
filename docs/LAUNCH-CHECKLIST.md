@@ -136,6 +136,11 @@ email link as the fallback.
 
 Nothing goes into `.env.production` or Vercel here: the GitHub secret lives only in Supabase.
 
+Locally you don't need any of this. Run the app with `REELPLANE_TEST_AUTH=1` and a local
+"GitHub" consent page stands in for GitHub: any login you type is its own test user. Test mode
+is refused on Vercel and against a non-local database. `e2e/github-signin.spec.ts` covers the
+flow.
+
 - [ ] **Check:** reload `https://<ref>.supabase.co/auth/v1/settings?apikey=<anon key>`. It now
   shows `"github": true` under `external`. The sign-in itself is checked in step 9.
 

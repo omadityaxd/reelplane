@@ -79,9 +79,13 @@ STORAGE_INTEGRATION=1 pnpm --filter @reelplane/storage test
 
 ## Dashboard
 
-`pnpm --filter @reelplane/web dev`, then open http://localhost:3000/dashboard. Locally there is
-no sign-in (you own the seeded projects); with Supabase configured, sign-in is by email magic
-link. Per project:
+`pnpm --filter @reelplane/web dev`, then open http://localhost:3000/dashboard. Sign-in is "Sign in
+with GitHub" (through Supabase Auth), with an email link as the fallback. Locally:
+- **Without Supabase configured**, there's no sign-in: you own the seeded projects.
+- **With `REELPLANE_TEST_AUTH=1`**, GitHub is simulated by a local consent page, so the whole
+  sign-in flow works with no accounts.
+
+Per project:
 
 - **Videos:** upload from the browser, preview, and a live processing timeline per video (every
   status change and job attempt, from the audit trail), plus the rendition ladder it got.

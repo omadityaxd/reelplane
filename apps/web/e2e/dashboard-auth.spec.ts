@@ -14,6 +14,13 @@ import { createClient } from "@supabase/supabase-js";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 test.skip(!url || !serviceKey, "Supabase is not configured");
+test.beforeAll(async ({ request }) => {
+  const testMode = (await request.get("/auth/test-github")).status() === 200;
+  test.skip(
+    testMode,
+    "the app runs in test mode (REELPLANE_TEST_AUTH=1): see github-signin.spec.ts",
+  );
+});
 
 const admin =
   url && serviceKey ? createClient(url, serviceKey, { auth: { persistSession: false } }) : null;
@@ -79,7 +86,10 @@ test.afterAll(async () => {
 test("signed out, the dashboard sends you to sign in", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole("button", { name: "Sign in with GitHub" })).toBeVisible();
+  await page.getByText("Or get a sign-in link by email").click();
   await expect(page.getByRole("button", { name: "Email me a sign-in link" })).toBeVisible();
+  await expect(page.getByText("Open the link on this same device and browser.")).toBeVisible();
 });
 
 test("a sign-in link works once", async ({ browser }) => {

@@ -514,3 +514,18 @@
   flex: 1;
   min-width: 0;
 }
+
+.dash-button--wide {
+  width: 100%;
+  justify-content: center;
+  padding: 10px 14px;
+  font-size: 1rem;
+}
+.dash-login-email {
+  margin-top: 24px;
+}
+.dash-login-email summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 12px;
+}

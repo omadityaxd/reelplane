@@ -22,6 +22,9 @@ export function LoginForm({ linkError, next }: { linkError: boolean; next: strin
         <span>Email</span>
         <input type="email" name="email" autoComplete="email" required />
       </label>
+      <p className="dash-note" style={{ margin: 0 }}>
+        Open the link on this same device and browser.
+      </p>
       {state.error && (
         <p className="dash-error" role="alert">
           {state.error}
