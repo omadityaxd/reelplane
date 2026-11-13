@@ -65,6 +65,96 @@ const items = Array.from({ length: 5 }, (_, i) => ({
 
 const feedFetch = (async () => Response.json({ data: items, nextCursor: null })) as typeof fetch;
 
+describe("FeedController first page", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeVideo.all = [];
+    vi.stubGlobal("navigator", { vendor: "Apple Computer, Inc." });
+    vi.spyOn(Math, "random").mockReturnValue(0.5); // backoff delays: 500, 1000, 2000 ms
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** A feed endpoint that answers with `statuses` in turn (0 = the network fails), then 200. */
+  function flakyFeed(statuses: number[]) {
+    let calls = 0;
+    const fetchFeed = (async () => {
+      const status = statuses[calls];
+      calls += 1;
+      if (status === 0) throw new TypeError("Failed to fetch");
+      if (status !== undefined) return Response.json({ error: { message: "nope" } }, { status });
+      return Response.json({ data: items, nextCursor: null });
+    }) as typeof fetch;
+    return { fetchFeed, calls: () => calls };
+  }
+
+  function controllerWith(fetchFeed: typeof fetch) {
+    const controller = new FeedController({
+      apiBaseUrl: "https://api.test",
+      publishableKey: "rp_pk_test",
+      feed: "latest",
+      sendMetrics: false,
+      fetch: fetchFeed,
+    });
+    controller.attach(
+      Array.from(
+        { length: controller.slotCount },
+        () => new FakeVideo(),
+      ) as unknown as HTMLVideoElement[],
+    );
+    return controller;
+  }
+
+  it("retries a first page lost to the network or a server error, then plays", async () => {
+    const feed = flakyFeed([0, 503, 429]);
+    const controller = controllerWith(feed.fetchFeed);
+    const started = controller.start();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await started;
+
+    expect(feed.calls()).toBe(4);
+    expect(controller.getState()).toMatchObject({ error: null, loading: false, activeIndex: 0 });
+    expect(controller.getState().items).toHaveLength(5);
+  });
+
+  it("does not retry a request the server refused for good", async () => {
+    const feed = flakyFeed([401]);
+    const controller = controllerWith(feed.fetchFeed);
+    await controller.start();
+
+    expect(feed.calls()).toBe(1);
+    expect(controller.getState()).toMatchObject({ error: "nope", loading: false, activeIndex: -1 });
+  });
+
+  it("shows the error after its retries, and `retry()` loads the page and starts playing", async () => {
+    const feed = flakyFeed([0, 0, 0, 0]);
+    const controller = controllerWith(feed.fetchFeed);
+    const started = controller.start();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await started;
+    expect(feed.calls()).toBe(4); // the first try and 3 retries
+    expect(controller.getState()).toMatchObject({ error: "Failed to fetch", items: [] });
+
+    await controller.retry(); // the viewer pressed "Try again"; the network is back
+    expect(controller.getState()).toMatchObject({ error: null, activeIndex: 0 });
+    expect(controller.getState().items).toHaveLength(5);
+  });
+
+  it("stops retrying once the feed is destroyed", async () => {
+    const feed = flakyFeed([503, 503, 503, 503]);
+    const controller = controllerWith(feed.fetchFeed);
+    const started = controller.start();
+    await vi.advanceTimersByTimeAsync(10);
+    controller.destroy();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await started;
+    expect(feed.calls()).toBe(1);
+  });
+});
+
 describe("FeedController sound and warming", () => {
   beforeEach(() => {
     vi.useFakeTimers();

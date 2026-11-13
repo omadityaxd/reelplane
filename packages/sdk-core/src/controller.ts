@@ -1,6 +1,13 @@
+import { backoffDelay, sleep } from "./backoff.ts";
 import { type DebugInfo, readDebugInfo } from "./debug.ts";
 import { PlaybackEngine } from "./engine.ts";
-import { FeedClient, type FeedItem, type FeedName, type FeedPage } from "./feed-client.ts";
+import {
+  FeedClient,
+  FeedError,
+  type FeedItem,
+  type FeedName,
+  type FeedPage,
+} from "./feed-client.ts";
 import { MetricsQueue, newSessionId, type PlaybackMetric, ViewTracker } from "./metrics.ts";
 import {
   BandwidthEstimator,
@@ -66,6 +73,19 @@ interface ItemSource {
 const PREFETCH_THRESHOLD = 3;
 /** A promoted video further in than this restarts from 0 (swiping back to a watched one). */
 const RESTART_THRESHOLD_SECONDS = 0.5;
+/**
+ * A page that fails on the network, a timeout, a rate limit or a server error is retried this
+ * many times before the feed shows the error (and a "Try again" button). Without it, one
+ * dropped request on a train left the first screen empty for good.
+ */
+const PAGE_RETRIES = 3;
+const PAGE_BACKOFF = { baseMs: 1000, maxMs: 8000 };
+
+/** Network failures (fetch throws a TypeError), 408, 429 and 5xx; not a bad key or feed name. */
+function retryablePageError(error: unknown): boolean {
+  if (!(error instanceof FeedError)) return true;
+  return error.status === 408 || error.status === 429 || error.status >= 500;
+}
 
 /**
  * Framework-free feed player. The UI renders one <video> per slot (see `slotCount`), positions
@@ -369,18 +389,37 @@ export class FeedController {
     }
   }
 
+  /** Tries a failed page again (the viewer pressed "Try again"), then resumes playback. */
+  async retry(): Promise<void> {
+    if (this.destroyed || this.state.loading) return;
+    await this.loadMore();
+    if (this.destroyed || this.state.items.length === 0) return;
+    if (this.state.activeIndex === -1) this.setActive(0, "initial");
+    else this.applyWindow(null, "swipe");
+  }
+
   private async loadMore(): Promise<void> {
     if (this.state.loading) return;
     this.update({ loading: true, error: null });
-    try {
-      const page = await this.client.nextPage();
-      if (this.destroyed) return;
-      this.update({ items: [...this.state.items, ...page], loading: false });
-    } catch (error) {
-      this.update({
-        loading: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const page = await this.client.nextPage();
+        if (this.destroyed) return;
+        this.update({ items: [...this.state.items, ...page], loading: false });
+        return;
+      } catch (error) {
+        if (this.destroyed) return;
+        if (attempt < PAGE_RETRIES && retryablePageError(error)) {
+          await sleep(backoffDelay(attempt, PAGE_BACKOFF));
+          if (this.destroyed) return;
+          continue;
+        }
+        this.update({
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
     }
   }
 

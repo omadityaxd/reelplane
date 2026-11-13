@@ -116,7 +116,19 @@ export const STYLES = `
   font-weight: 600;
 }
 .rp-tap { position: absolute; inset: 0; z-index: 1; background: transparent; border: 0; cursor: pointer; }
-.rp-empty { display: grid; place-items: center; height: 100%; padding: 24px; text-align: center; color: #d4d4d8; }
+.rp-empty { display: grid; place-content: center; justify-items: center; gap: 16px; height: 100%; padding: 24px; text-align: center; color: #d4d4d8; }
+.rp-empty p { margin: 0; }
+.rp-retry {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--rp-foreground);
+  color: #0a0a0a;
+  font: 600 15px var(--rp-font);
+  cursor: pointer;
+}
+.rp-retry:focus-visible { outline: 3px solid var(--rp-accent); outline-offset: 2px; }
 .rp-debug {
   position: absolute;
   top: calc(8px + env(safe-area-inset-top));

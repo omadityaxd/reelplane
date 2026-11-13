@@ -94,7 +94,8 @@ export class Warmer {
 
   private async cycle(video: HTMLVideoElement, generation: number): Promise<void> {
     if (generation !== this.generation) return;
-    if (!this.allowed()) {
+    // A hidden tab plays nothing, so warming there only costs battery and data.
+    if (!this.allowed() || pageHidden()) {
       this.warmed = false;
       this.schedule(video, generation); // conditions change (network, charging): look again later
       return;
@@ -110,13 +111,20 @@ export class Warmer {
       await video.play();
       await nextFrame(video);
     } catch {
-      return; // autoplay refused (e.g. iOS Low Power Mode), element reused…: best-effort
+      // Autoplay refused (e.g. iOS Low Power Mode), or the window moved mid warm-up: try again
+      // later rather than stop warming this video until the next swipe.
+      if (generation === this.generation) this.schedule(video, generation);
+      return;
     }
     if (generation !== this.generation) return; // it became the active video: keep playing
     video.pause();
     this.warmed = true;
     this.schedule(video, generation);
   }
+}
+
+function pageHidden(): boolean {
+  return typeof document !== "undefined" && document.hidden;
 }
 
 function nextFrame(video: HTMLVideoElement): Promise<void> {

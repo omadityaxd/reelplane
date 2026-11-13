@@ -225,7 +225,14 @@ export function ReelFeed(props: ReelFeedProps) {
           })}
         </div>
         {state && !state.loading && items.length === 0 && (
-          <div className="rp-empty">{state.error ?? "No videos yet."}</div>
+          <div className="rp-empty" role={state.error ? "alert" : undefined}>
+            <p>{state.error ?? "No videos yet."}</p>
+            {state.error && (
+              <button type="button" className="rp-retry" onClick={() => void controller?.retry()}>
+                Try again
+              </button>
+            )}
+          </div>
         )}
       </div>
       {state && activeItem && (

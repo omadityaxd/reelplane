@@ -45,6 +45,11 @@ below, with its impact and the fix I'd make.
   response now holds the token sealed with AES-256-GCM, under a key derived from
   `API_KEY_PEPPER`. A replay still returns the same working token, and database access alone
   can't read it.
+- **No retry for a failed feed page.** A page lost to the network, a timeout, a rate limit or a
+  5xx is retried 3 times with backoff. After that `<ReelFeed>` shows the error with a
+  "Try again" button, which calls the new `FeedController.retry()`.
+- **Warming in hidden tabs, and warming stopped by one refused `play()`.** The warmer now skips
+  its cycle while `document.hidden`. A refused warm-up is rescheduled, not dropped.
 
 ## Worker (Go)
 
@@ -73,9 +78,6 @@ below, with its impact and the fix I'd make.
 
 | Issue                                                              | Impact                                                                                     | Fix                                                      |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| **The warmer ignores page visibility** (`warmer.ts`)               | In a hidden tab the next video still plays one frame every 4 s.                            | Skip warming while `document.hidden`.                    |
-| **A rejected warm-up `play()` stops warming**                      | If the window re-applies mid warm-up, warming of that video stops until the next swipe.    | Reschedule on rejection.                                 |
-| **The first page has no retry** (`controller.ts`)                  | If the first feed request fails, the feed shows an error and stays empty.                  | Retry with backoff, plus a retry button in `<ReelFeed>`. |
 | **`flush()` sends at most 100 events on page hide** (`metrics.ts`) | A very long session can lose events beyond 100 at the end.                                 | Split the final flush into several `keepalive` requests. |
 | **`verifyWebhook` keeps only the last `v1=` signature**            | A multi-signature header during secret rotation won't verify. No guard on an empty secret. | Accept any matching `v1`; reject an empty secret.        |
 
