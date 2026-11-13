@@ -1,6 +1,120 @@
 # Architecture and decisions
 
-This document grows phase by phase. Each decision lists the trade-off it accepts.
+The first section is the short version: the decisions that shape Reelplane, the trade-off each
+one accepts, and what changes at 1,000× scale. The sections after it are the detailed record,
+newest phase first. Numbers come from [BENCHMARKS.md](BENCHMARKS.md).
+
+## Key decisions
+
+### Postgres is the job queue (not Kafka, SQS or Redis)
+
+- **How:** jobs are rows. Workers claim with `FOR UPDATE SKIP LOCKED`, and the video's status,
+  its job, its audit trail and its webhook outbox change in one transaction, so they can't
+  disagree.
+- **Why:** no second system to run, pay for or keep in sync, and the invariants live in the
+  schema. One active job per video is a partial unique index. Illegal status transitions are
+  refused by a trigger.
+- **Trade-off:** throughput is bounded by one database (fine to roughly thousands of claims a
+  second), and workers poll instead of being pushed to. Detail:
+  [Why Postgres as the queue](#why-postgres-as-the-queue-not-kafka-sqs-or-redis).
+
+### Leases, heartbeats and fencing (not "a worker owns a job until it says otherwise")
+
+- **How:** a claim is a lease that the worker renews every 20 s. When it lapses, the job goes
+  back to the queue. Every write a worker makes checks it still holds the lease, so a worker
+  that froze and came back can't publish over the new owner. Each attempt writes to its own
+  storage prefix, publishing is one transaction, and a dead attempt's files are recorded as
+  garbage in the same transaction that abandons it.
+- **Why:** workers die without warning (laptop lid, OOM, `docker kill`).
+- **Result:** the chaos test killed 64 workers during 100 jobs: 100/100 finished exactly once,
+  0 duplicate jobs, 0 orphaned objects.
+- **Trade-off:** a dead worker's job waits up to one lease before it is retried, and work is
+  at-least-once internally (made exactly-once in effect by the atomic publish). Detail:
+  [Claim, lease, heartbeat, fencing](#claim-lease-heartbeat-fencing).
+
+### Uploads go straight to storage
+
+- **How:** the API creates a multipart upload and hands the browser short-lived presigned URLs
+  for each part (signed with their exact size). Video bytes never pass through the API.
+- **Why:** a free serverless function can't stream 100 MB, and uploads resume part by part
+  after a dropped connection. Storage is the source of truth for which parts arrived.
+- **Trade-off:** the server only sees the file after the fact. So it re-checks the real size
+  and the file's magic bytes on completion, and ffprobe checks the content in the worker.
+  Detail: [Why direct-to-storage](#why-direct-to-storage).
+
+### 2-second segments
+
+- **Why:** a short video's first segment arrives quickly. Preloading the next reels costs about
+  one segment each, and the ABR algorithm can change quality often. Keyframes are forced at
+  every 2 s boundary, so renditions switch cleanly.
+- **Trade-off:** three times the requests and playlist entries of the common 6 s, which doesn't
+  matter for clips of 60 s or less.
+
+### H.264 + AAC in CMAF
+
+- **Why:** it plays everywhere without exceptions. Natively on every iPhone and Safari, through
+  Media Source Extensions on everything else, and decoded in hardware on old Android phones.
+- **Trade-off:** HEVC or AV1 would reach the same quality at roughly 30–50% fewer bits, but
+  they need a codec-specific fallback ladder, slower encodes and per-device testing. CMAF keeps
+  the door open: adding an HEVC ladder alongside means new playlists, not a new pipeline.
+  Phone HDR (HLG and PQ) is tone-mapped to SDR, so 8-bit H.264 doesn't look washed out.
+
+### The worker runs on a laptop (for the free demo)
+
+- **Why:** no free, no-card host runs FFmpeg always-on with enough CPU (compared in
+  [DEPLOY.md](DEPLOY.md)). Hugging Face Docker Spaces became paid; Koyeb's and Render's free
+  tiers are 0.1 vCPU web services that sleep and refuse background workers.
+- **What makes it acceptable:** the control plane never waits for the worker.
+  - The demo feed plays videos transcoded before deploy.
+  - Uploads wait in the queue, and the upload page says so (each worker records that it's
+    alive).
+  - A daily Vercel cron expires demo uploads and sweeps storage without it.
+  - Webhooks wait in the outbox.
+- **Trade-off:** uploads are only processed while the laptop runs `pnpm prod:worker`. Moving
+  the worker is a deploy, not a code change: it's one Docker image configured by environment
+  variables. Measured on 2 vCPUs: 1.38× realtime.
+
+### Isolation by Postgres row-level security
+
+Every request runs as a restricted role, scoped to one project, with RLS on every table. A
+query that forgets `WHERE project_id = …` still can't see another project's rows. Tests call
+every id-taking endpoint with another project's credentials.
+[Detail](#isolation-is-enforced-by-postgres-not-by-remembering-where-clauses).
+
+## What changes at 1,000× scale
+
+Today: one Next.js process serves about 120–140 requests/s (feed p95 48 ms at 100 req/s), one
+2-vCPU worker transcodes at 1.38× realtime, and everything shares one free Postgres. At 1,000×
+the traffic:
+
+- **Feed reads:** cache feed pages at the edge (a CDN with a short TTL keyed by project, feed
+  and cursor). Today's cache is in-process, 10 s. Keep Postgres for the long tail and for
+  personalised feeds. Precompute `trending` scores on a schedule instead of per request.
+- **Video delivery:** a CDN in front of storage (already supported through
+  `STORAGE_PUBLIC_BASE_URL`), and a storage provider with free egress. Video bytes dominate the
+  bill long before compute does.
+- **Writes and analytics:**
+  - Playback events move off the primary into a log (Kafka/Redpanda, or a managed
+    queue), then into a column store such as ClickHouse.
+  - The dashboard's percentiles come from pre-aggregated rollups, not raw rows.
+  - Rate-limit counters move to Redis behind the same interface; the Postgres version is one
+    write per request.
+- **The queue:** first a dedicated Postgres for jobs, batched claims, and `LISTEN/NOTIFY`
+  wake-ups instead of polling. Past ~10k claims/s, a log-based queue or SQS fed by the same
+  transactional outbox, which keeps the "status and event change together" guarantee.
+- **Workers:**
+  - Autoscale on queue depth and age of the oldest job.
+  - Use hardware encoders (NVENC/QSV) for throughput.
+  - Split long sources into GOP-aligned chunks encoded in parallel.
+  - Add HEVC/AV1 ladders for the devices that benefit.
+  - Per-tenant fairness, so one big customer can't starve the queue.
+- **Database:** read replicas for feeds and the dashboard, partitioned `video_events` and
+  `playback_events` by time, and a pooler sized for serverless. Tenancy stays in RLS, which
+  doesn't depend on table size.
+- **Organisation:** the control plane and the data plane already only meet in Postgres and
+  storage, so they scale, deploy and fail independently. That boundary is the part that
+  doesn't change.
+
 
 ## Hardening (Phase 7)
 
@@ -395,15 +509,9 @@ worker every 0.8–4 s, restarting it. It then checks, from Postgres and storage
 
 Results are in [BENCHMARKS.md](BENCHMARKS.md).
 
-### What changes at 1,000× scale
+### At larger scale
 
-- **Queue:** move job hot state to a dedicated Postgres (or a partitioned `jobs` table); claim in
-  batches; swap polling for `LISTEN/NOTIFY` wake-ups. Past ~10k claims/s, a log-based queue
-  (Kafka/Redpanda) or SQS with a transactional outbox becomes worth its operational cost.
-- **Workers:** autoscale on queue depth; GPU or hardware encoders (NVENC/QSV) for throughput;
-  split large sources into GOP-aligned chunks and transcode them in parallel.
-- **Storage:** a CDN in front of the bucket (already supported via `STORAGE_PUBLIC_BASE_URL`),
-  plus lifecycle rules for originals.
+See [What changes at 1,000× scale](#what-changes-at-1000-scale) at the top.
 
 ## The upload path (Phase 3)
 
