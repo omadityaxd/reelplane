@@ -1,6 +1,7 @@
 import { type PartTransport, UploadError, uploadVideo } from "@reelplane/sdk-core";
 import { describe, expect, it } from "vitest";
 import type { AppDeps } from "@/lib/server/deps.ts";
+import { open, seal } from "@/lib/server/sealed.ts";
 import {
   API,
   apiRequest,
@@ -259,6 +260,50 @@ describe("upload sessions: validation, idempotency and access", () => {
       apiRequest("/v1/videos", { method: "GET", credential: secretKey.key }),
     );
     expect((await body<{ data: unknown[] }>(list)).data).toHaveLength(1);
+  });
+
+  it("never stores a usable upload token for replays, yet replays the same working token", async () => {
+    const { secretKey, project } = await newProject(pool);
+    const payload = { contentType: "video/mp4", sizeBytes: 1000 };
+    const headers = { "idempotency-key": "sealed-token" };
+
+    const first = await body<{ data: Session }>(await create(secretKey.key, payload, headers));
+    const { rows } = await pool.query<{ response: unknown }>(
+      "select response from reelplane.idempotency_keys where project_id = $1 and key = $2",
+      [project.id, "sealed-token"],
+    );
+    const stored = JSON.stringify(rows[0]?.response);
+    expect(stored).toContain(first.data.video.id);
+    expect(stored).toContain("sealedToken");
+    expect(stored).not.toContain(first.data.upload.token);
+
+    const replay = await create(secretKey.key, payload, headers);
+    expect(replay.headers.get("idempotent-replayed")).toBe("true");
+    const replayed = await body<{ data: Session }>(replay);
+    expect(replayed.data.upload).toEqual(first.data.upload);
+    expect(JSON.stringify(replayed)).not.toContain("sealedToken");
+
+    // The replayed token is the real one: it can sign parts for its video.
+    const parts = await api.routes.signParts(
+      apiRequest(`/v1/uploads/${replayed.data.upload.videoId}/parts`, {
+        credential: replayed.data.upload.token,
+        body: {},
+        headers: { origin: ORIGIN },
+      }),
+      api.ctx(replayed.data.upload.videoId),
+    );
+    expect(parts.status).toBe(200);
+  });
+
+  it("seals values so only the same pepper and purpose can open them", () => {
+    const sealed = seal("rp_upl_secret", PEPPER, "test");
+    expect(sealed).not.toContain("rp_upl_secret");
+    expect(open(sealed, PEPPER, "test")).toBe("rp_upl_secret");
+    expect(seal("rp_upl_secret", PEPPER, "test")).not.toBe(sealed); // a fresh IV each time
+    expect(() => open(sealed, "another-pepper-0123456789abcdef", "test")).toThrow();
+    expect(() => open(sealed, PEPPER, "another purpose")).toThrow();
+    const tampered = `${sealed.slice(0, -2)}${sealed.endsWith("A") ? "B" : "A"}A`;
+    expect(() => open(tampered, PEPPER, "test")).toThrow();
   });
 
   it("rejects reusing an Idempotency-Key with a different body", async () => {

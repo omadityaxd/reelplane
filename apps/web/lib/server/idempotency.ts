@@ -13,6 +13,17 @@ export interface IdempotentResult {
   body: unknown;
 }
 
+/**
+ * How a response is stored for replays and restored from storage: lets an operation keep
+ * secrets out of the stored copy (see the upload token in endpoints/uploads.ts).
+ */
+export interface ReplayCodec {
+  store(body: unknown): unknown;
+  restore(stored: unknown): unknown;
+}
+
+const PLAIN: ReplayCodec = { store: (body) => body, restore: (stored) => stored };
+
 const MAX_KEY_LENGTH = 255;
 const REPLAY_HEADER = "idempotent-replayed";
 
@@ -25,9 +36,17 @@ const REPLAY_HEADER = "idempotent-replayed";
  * unexpected errors release the key so the client can retry.
  */
 export async function withIdempotency(
-  input: { pool: Pool; projectId: string; operation: string; request: Request; body: unknown },
+  input: {
+    pool: Pool;
+    projectId: string;
+    operation: string;
+    request: Request;
+    body: unknown;
+    codec?: ReplayCodec;
+  },
   operation: () => Promise<IdempotentResult>,
 ): Promise<Response> {
+  const codec = input.codec ?? PLAIN;
   const key = input.request.headers.get("idempotency-key");
   if (!key) {
     const result = await operation();
@@ -48,10 +67,13 @@ export async function withIdempotency(
 
   switch (claim.state) {
     case "replay":
-      return Response.json(claim.response, {
-        status: claim.statusCode,
-        headers: { [REPLAY_HEADER]: "true" },
-      });
+      return Response.json(
+        claim.statusCode < 300 ? codec.restore(claim.response) : claim.response,
+        {
+          status: claim.statusCode,
+          headers: { [REPLAY_HEADER]: "true" },
+        },
+      );
     case "in_progress":
       throw new ApiError("conflict", "A request with this Idempotency-Key is still in progress.");
     case "mismatch":
@@ -65,7 +87,8 @@ export async function withIdempotency(
 
   try {
     const result = await operation();
-    await completeIdempotencyKey(input.pool, scope, result.status, result.body);
+    const stored = result.status < 300 ? codec.store(result.body) : result.body;
+    await completeIdempotencyKey(input.pool, scope, result.status, stored);
     return Response.json(result.body, { status: result.status });
   } catch (error) {
     if (error instanceof ApiError && error.status < 500) {

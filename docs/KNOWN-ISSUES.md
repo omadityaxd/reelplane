@@ -41,6 +41,10 @@ below, with its impact and the fix I'd make.
 - **No protocol or format allow-list for FFmpeg.** Every FFmpeg and ffprobe input now gets
   `-protocol_whitelist file -format_whitelist mov,matroska`. A concat or HLS playlist
   disguised as an upload is refused.
+- **Idempotent replays kept the upload token in plaintext.** The stored `POST /v1/uploads`
+  response now holds the token sealed with AES-256-GCM, under a key derived from
+  `API_KEY_PEPPER`. A replay still returns the same working token, and database access alone
+  can't read it.
 
 ## Worker (Go)
 
@@ -57,14 +61,13 @@ below, with its impact and the fix I'd make.
 
 ## Upload path and API
 
-| Issue                                                                        | Impact                                                                                                                                                                | Fix                                                                        |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| **Idempotent replays keep the upload token in plaintext** (`idempotency.ts`) | The `POST /v1/uploads` response, token included, is stored for 24 h in `idempotency_keys`. Anyone with database access could use a live token for its video.          | Store the response without the token, and mint a fresh one on replay.      |
-| **A database error after a successful create releases the idempotency key**  | A retry then creates a second upload; the first multipart upload is orphaned until the cleanup job. The 120 s stale-claim takeover can double-run a very slow create. | Keep the key on post-success failures, and lengthen the takeover.          |
-| **Abort ignores a failed multipart abort** (`service.ts`)                    | Parts stay until the bucket's lifecycle rules (if any) remove them.                                                                                                   | Record it as garbage.                                                      |
-| **QuickTime files without an `ftyp` box are rejected** (`sniff.ts`)          | Very old `.mov` files, which FFmpeg would accept, fail with "unsupported file type".                                                                                  | Also accept `moov`, `wide` and `mdat` first boxes for `video/quicktime`.   |
-| **A resumed upload doesn't check it's the same file**                        | Resuming with a different file of the same size mixes parts. The worker then fails or publishes garbage.                                                              | Keep a hash of the first and last part per session, and compare on resume. |
-| **Aborting during backoff rejects with the raw reason**                      | Callers see the `AbortSignal`'s reason, not `UploadError("aborted")`.                                                                                                 | Wrap it.                                                                   |
+| Issue                                                                       | Impact                                                                                                                                                                | Fix                                                                        |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **A database error after a successful create releases the idempotency key** | A retry then creates a second upload; the first multipart upload is orphaned until the cleanup job. The 120 s stale-claim takeover can double-run a very slow create. | Keep the key on post-success failures, and lengthen the takeover.          |
+| **Abort ignores a failed multipart abort** (`service.ts`)                   | Parts stay until the bucket's lifecycle rules (if any) remove them.                                                                                                   | Record it as garbage.                                                      |
+| **QuickTime files without an `ftyp` box are rejected** (`sniff.ts`)         | Very old `.mov` files, which FFmpeg would accept, fail with "unsupported file type".                                                                                  | Also accept `moov`, `wide` and `mdat` first boxes for `video/quicktime`.   |
+| **A resumed upload doesn't check it's the same file**                       | Resuming with a different file of the same size mixes parts. The worker then fails or publishes garbage.                                                              | Keep a hash of the first and last part per session, and compare on resume. |
+| **Aborting during backoff rejects with the raw reason**                     | Callers see the `AbortSignal`'s reason, not `UploadError("aborted")`.                                                                                                 | Wrap it.                                                                   |
 
 ## Player SDK
 

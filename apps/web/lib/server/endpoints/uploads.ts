@@ -1,7 +1,8 @@
 import { json, readJson } from "../api-route.ts";
 import { endpoint } from "../endpoint.ts";
-import { withIdempotency } from "../idempotency.ts";
+import { type ReplayCodec, withIdempotency } from "../idempotency.ts";
 import { RULES } from "../rate-limit.ts";
+import { open, seal } from "../sealed.ts";
 import {
   completeUploadSchema,
   createUploadSchema,
@@ -13,7 +14,36 @@ import {
   completeUploadSession,
   createUploadSession,
   signUploadParts,
+  type UploadSession,
 } from "../uploads/service.ts";
+
+const TOKEN_PURPOSE = "idempotent upload token";
+
+/**
+ * A replayed create must return the same upload token, but the stored copy (kept 24 h) must
+ * not be a usable token for anyone who can read the database: it is sealed with the pepper.
+ */
+export function uploadTokenCodec(pepper: string): ReplayCodec {
+  return {
+    store: (body) => {
+      const { data } = body as { data: UploadSession };
+      const { token, ...upload } = data.upload;
+      return {
+        data: { ...data, upload: { ...upload, sealedToken: seal(token, pepper, TOKEN_PURPOSE) } },
+      };
+    },
+    restore: (stored) => {
+      const { data } = stored as {
+        data: { upload: { sealedToken?: string } } & Record<string, unknown>;
+      };
+      const { sealedToken, ...upload } = data.upload;
+      if (sealedToken === undefined) return stored; // stored before tokens were sealed
+      return {
+        data: { ...data, upload: { ...upload, token: open(sealedToken, pepper, TOKEN_PURPOSE) } },
+      };
+    },
+  };
+}
 
 /**
  * POST /v1/uploads — start a direct upload (secret key; call it from your server).
@@ -24,7 +54,14 @@ export const createUpload = endpoint(
   async ({ request, auth, deps }) => {
     const body = await readJson(request);
     return withIdempotency(
-      { pool: deps.pool, projectId: auth.projectId, operation: "uploads.create", request, body },
+      {
+        pool: deps.pool,
+        projectId: auth.projectId,
+        operation: "uploads.create",
+        request,
+        body,
+        codec: uploadTokenCodec(deps.pepper),
+      },
       async () => {
         const input = parseBody(createUploadSchema, body);
         return {

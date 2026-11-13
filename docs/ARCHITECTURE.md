@@ -596,7 +596,9 @@ if the app persists `{videoId, token}`.
   key is claimed in a committed row before any work starts, so concurrent retries get
   "in progress" instead of a duplicate. Same key + same body replays the stored response
   (`Idempotent-Replayed: true`); same key + a different body is a 409. 4xx results are stored;
-  5xx results release the key so a retry can succeed.
+  5xx results release the key so a retry can succeed. The stored response keeps the upload
+  token sealed (AES-256-GCM, key derived from `API_KEY_PEPPER`), so the 24 h replay copy is
+  not a usable token for anyone who can only read the database.
 - **Complete:** idempotent by construction. The status flip and the job insert happen in one
   transaction under `SELECT … FOR UPDATE`. A replay sees `queued` and returns the video. The
   partial unique index on active jobs is a second guard. If a previous attempt assembled the
