@@ -19,6 +19,11 @@ export interface FeedItem {
     posterUrl: string | null;
     placeholder: string | null;
     renditions?: RenditionInfo[];
+    /**
+     * The first item of a first page carries its master and starting variant playlists (by
+     * URL), so hls.js can start on the segments right away.
+     */
+    inline?: { playlists: Record<string, string> };
   };
 }
 

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AppDeps } from "@/lib/server/deps.ts";
 import { bind } from "@/lib/server/endpoint.ts";
 import * as feeds from "@/lib/server/endpoints/feeds.ts";
+import { firstVariantUri } from "@/lib/server/feeds/inline.ts";
 import {
   API,
   apiRequest,
@@ -233,3 +234,66 @@ describe("likes", () => {
 });
 
 void API;
+
+describe("inlined first playlists", () => {
+  const MASTER = [
+    "#EXTM3U",
+    "#EXT-X-INDEPENDENT-SEGMENTS",
+    '#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=720x1280,CODECS="avc1.64001f,mp4a.40.2"',
+    "720p/index.m3u8",
+    '#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=240x426,CODECS="avc1.4d4015,mp4a.40.2"',
+    "240p/index.m3u8",
+    "",
+  ].join("\n");
+  const VARIANT = "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\nseg_000.m4s\n#EXT-X-ENDLIST\n";
+
+  async function publishPlaylists(projectId: string, videoId: string): Promise<string> {
+    const prefix = `media/${projectId}/${videoId}/a1`;
+    await deps.storage.putObject(`${prefix}/master.m3u8`, MASTER);
+    await deps.storage.putObject(`${prefix}/720p/index.m3u8`, VARIANT);
+    return prefix;
+  }
+
+  type InlineBody = {
+    data: { id: string; playback: { inline?: { playlists: Record<string, string> } } }[];
+  };
+
+  it("puts the first video's master and starting variant into a first page, by URL", async () => {
+    const { project, publishableKey } = await newProject(pool);
+    await readyVideo(pool, project.id, { hoursAgo: 2 });
+    const newest = await readyVideo(pool, project.id, { hoursAgo: 1 });
+    const prefix = await publishPlaylists(project.id, newest);
+
+    const page = (await getFeed(
+      publishableKey.key,
+      "latest",
+      "?limit=1",
+    )) as unknown as InlineBody & FeedBody;
+    const [first] = page.data;
+    expect(first?.id).toBe(newest);
+    expect(first?.playback.inline?.playlists).toEqual({
+      [deps.storage.publicUrl(`${prefix}/master.m3u8`)]: MASTER,
+      [deps.storage.publicUrl(`${prefix}/720p/index.m3u8`)]: VARIANT,
+    });
+
+    // Later pages have no first video to speed up.
+    const next = (await getFeed(
+      publishableKey.key,
+      "latest",
+      `?limit=1&cursor=${encodeURIComponent(page.nextCursor ?? "")}`,
+    )) as unknown as InlineBody;
+    expect(next.data[0]?.playback.inline).toBeUndefined();
+  });
+
+  it("leaves the playlists out when storage doesn't have them", async () => {
+    const { project, publishableKey } = await newProject(pool);
+    await readyVideo(pool, project.id);
+    const page = (await getFeed(publishableKey.key, "trending")) as unknown as InlineBody;
+    expect(page.data[0]?.playback.inline).toBeUndefined();
+  });
+
+  it("finds the variant players start on", () => {
+    expect(firstVariantUri(MASTER)).toBe("720p/index.m3u8");
+    expect(firstVariantUri("#EXTM3U\n#EXTINF:2,\nseg.m4s\n")).toBeNull();
+  });
+});

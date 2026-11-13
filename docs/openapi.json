@@ -1721,6 +1721,24 @@
                   "required": ["name", "width", "height", "bitrateKbps", "fps"],
                   "additionalProperties": false
                 }
+              },
+              "inline": {
+                "description": "First item of a first page only: its master and starting variant playlists, keyed by URL, so the player can skip two round trips.",
+                "type": "object",
+                "properties": {
+                  "playlists": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["playlists"],
+                "additionalProperties": false
               }
             },
             "required": ["hlsUrl", "hlsLowStartUrl", "posterUrl", "placeholder", "renditions"],

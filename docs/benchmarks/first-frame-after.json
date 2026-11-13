@@ -1,0 +1,77 @@
+{
+  "label": "after",
+  "measuredAt": "2026-11-13T10:29:25.730Z",
+  "network": "Chrome DevTools Fast 4G (9 Mbps down ×0.9, 1.5 Mbps up ×0.9, 165 ms latency)",
+  "device": "390x844 @3x, touch, Chrome",
+  "runs": 10,
+  "activationToFirstFrame": {
+    "p50": 1205,
+    "p95": 1364
+  },
+  "navigationToFirstFrame": {
+    "p50": 2092,
+    "p95": 2233
+  },
+  "samples": [
+    {
+      "run": 1,
+      "activationToFirstFrameMs": 1364,
+      "navigationToFirstFrameMs": 2233,
+      "playlistRequests": 4
+    },
+    {
+      "run": 2,
+      "activationToFirstFrameMs": 1113,
+      "navigationToFirstFrameMs": 1992,
+      "playlistRequests": 4
+    },
+    {
+      "run": 3,
+      "activationToFirstFrameMs": 1204,
+      "navigationToFirstFrameMs": 2082,
+      "playlistRequests": 4
+    },
+    {
+      "run": 4,
+      "activationToFirstFrameMs": 1205,
+      "navigationToFirstFrameMs": 2089,
+      "playlistRequests": 4
+    },
+    {
+      "run": 5,
+      "activationToFirstFrameMs": 1180,
+      "navigationToFirstFrameMs": 2085,
+      "playlistRequests": 4
+    },
+    {
+      "run": 6,
+      "activationToFirstFrameMs": 1216,
+      "navigationToFirstFrameMs": 2114,
+      "playlistRequests": 4
+    },
+    {
+      "run": 7,
+      "activationToFirstFrameMs": 1233,
+      "navigationToFirstFrameMs": 2144,
+      "playlistRequests": 4
+    },
+    {
+      "run": 8,
+      "activationToFirstFrameMs": 1184,
+      "navigationToFirstFrameMs": 2092,
+      "playlistRequests": 4
+    },
+    {
+      "run": 9,
+      "activationToFirstFrameMs": 1224,
+      "navigationToFirstFrameMs": 2118,
+      "playlistRequests": 4
+    },
+    {
+      "run": 10,
+      "activationToFirstFrameMs": 1212,
+      "navigationToFirstFrameMs": 2108,
+      "playlistRequests": 4
+    }
+  ]
+}

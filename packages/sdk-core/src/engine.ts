@@ -26,6 +26,11 @@ export interface EngineOptions extends EngineEvents {
 export interface LoadOptions {
   /** Height of the rendition to start on (hls.js); native HLS starts on the playlist's first. */
   startHeight?: number | undefined;
+  /**
+   * Playlists already in hand, by URL (the feed inlines the first video's): hls.js uses them
+   * instead of fetching. Native HLS loads playlists itself and ignores them.
+   */
+  playlists?: Record<string, string> | undefined;
 }
 
 export interface LevelInfo {
@@ -85,6 +90,49 @@ const ABR_CONFIG = {
   abrBandWidthFactor: 0.9,
   testBandwidth: false,
 } as const;
+
+type PlaylistLoader = NonNullable<ConstructorParameters<HlsModule["default"]>[0]>["pLoader"];
+
+/**
+ * hls.js's own loader, except that playlists already in hand are answered from memory. Keys are
+ * matched as hls.js requests them: the master by its (transformed) source URL, variants by URLs
+ * resolved against it, which carry no transform (xhrSetup applies it on the wire).
+ */
+function inlinePlaylistLoader(
+  HlsClass: HlsModule["default"],
+  playlists: Record<string, string>,
+  transform: ((url: string) => string) | undefined,
+): PlaylistLoader {
+  const known = new Map<string, string>();
+  for (const [url, body] of Object.entries(playlists)) {
+    known.set(url, body);
+    if (transform) known.set(transform(url), body);
+  }
+  const Base = HlsClass.DefaultConfig.loader;
+  class InlinePlaylistLoader extends Base {
+    override load(...args: Parameters<InstanceType<typeof Base>["load"]>): void {
+      const [context, , callbacks] = args;
+      const body = known.get(context.url);
+      if (body === undefined) {
+        super.load(...args);
+        return;
+      }
+      const stats = this.stats;
+      const now = performance.now();
+      stats.loading.start = now;
+      stats.loading.first = now;
+      stats.loading.end = now;
+      stats.loaded = body.length;
+      stats.total = body.length;
+      // Answer asynchronously, like the network would, unless aborted or destroyed meanwhile.
+      queueMicrotask(() => {
+        if (!stats.aborted)
+          callbacks.onSuccess({ url: context.url, data: body }, stats, context, null);
+      });
+    }
+  }
+  return InlinePlaylistLoader as unknown as PlaylistLoader;
+}
 
 export function prefersNativeHls(video: HTMLVideoElement): boolean {
   const canPlayNative = video.canPlayType("application/vnd.apple.mpegurl") !== "";
@@ -189,6 +237,9 @@ export class PlaybackEngine {
       backBufferLength: 10,
       ...(transform
         ? { xhrSetup: (xhr: XMLHttpRequest, url: string) => xhr.open("GET", transform(url), true) }
+        : {}),
+      ...(options.playlists
+        ? { pLoader: inlinePlaylistLoader(HlsClass, options.playlists, transform) }
         : {}),
     });
     hls.on(HlsClass.Events.MANIFEST_PARSED, () => {

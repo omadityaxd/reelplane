@@ -16,6 +16,7 @@ import { MemoryCache } from "../cache.ts";
 import type { AppDeps } from "../deps.ts";
 import { endpoint } from "../endpoint.ts";
 import { ApiError } from "../errors.ts";
+import { inlinePlaylists } from "../feeds/inline.ts";
 import { clientAddress, RULES } from "../rate-limit.ts";
 import { parseBody } from "../uploads/schemas.ts";
 
@@ -43,6 +44,8 @@ export interface PublicFeedVideo {
     posterUrl: string | null;
     placeholder: string | null;
     renditions: FeedVideo["renditions"];
+    /** First item of a first page only: its master and starting variant playlists, by URL. */
+    inline?: { playlists: Record<string, string> };
   };
   score?: FeedVideo["score"];
 }
@@ -71,6 +74,28 @@ function serializeFeedVideo(
     },
     ...(explain && video.score ? { score: video.score } : {}),
   };
+}
+
+/**
+ * Puts the first video's playlists into a first page (see feeds/inline.ts). Best effort: if
+ * storage can't be read, the page goes out without them and the player fetches them itself.
+ */
+async function inlineFirst(
+  items: PublicFeedVideo[],
+  videos: FeedVideo[],
+  storage: ObjectStorage,
+): Promise<PublicFeedVideo[]> {
+  const [first, ...rest] = items;
+  const video = videos[0];
+  if (!first || !video) return items;
+  try {
+    const playlists = await inlinePlaylists(storage, video.masterPlaylistKey);
+    if (!playlists) return items;
+    return [{ ...first, playback: { ...first.playback, inline: { playlists } } }, ...rest];
+  } catch (error) {
+    console.error("[feeds] inlining the first video's playlists failed", error);
+    return items;
+  }
 }
 
 /** The worker writes master_low.m3u8 next to master.m3u8 (services/worker/internal/media). */
@@ -110,7 +135,11 @@ export async function firstFeedPage(
   if (cached) return { items: cached.data, nextCursor: cached.nextCursor };
   const page = await getFeed(deps.pool, { projectId, feed, limit });
   const body = {
-    data: page.videos.map((video) => serializeFeedVideo(video, deps.storage, false)),
+    data: await inlineFirst(
+      page.videos.map((video) => serializeFeedVideo(video, deps.storage, false)),
+      page.videos,
+      deps.storage,
+    ),
     nextCursor: page.nextCursor,
   };
   feedCache.set(cacheKey, body, FEED_CACHE_TTL_MS);
@@ -144,8 +173,9 @@ export const getFeedPage = endpoint(
         limit: query.limit,
         cursor: query.cursor,
       });
+      const items = page.videos.map((video) => serializeFeedVideo(video, deps.storage, explain));
       const body = {
-        data: page.videos.map((video) => serializeFeedVideo(video, deps.storage, explain)),
+        data: query.cursor ? items : await inlineFirst(items, page.videos, deps.storage),
         nextCursor: page.nextCursor,
       };
       feedCache.set(cacheKey, body, FEED_CACHE_TTL_MS);

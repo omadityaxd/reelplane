@@ -76,10 +76,11 @@ below, with its impact and the fix I'd make.
 
 ## Player SDK
 
-| Issue                                                              | Impact                                                                                     | Fix                                                      |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| **`flush()` sends at most 100 events on page hide** (`metrics.ts`) | A very long session can lose events beyond 100 at the end.                                 | Split the final flush into several `keepalive` requests. |
-| **`verifyWebhook` keeps only the last `v1=` signature**            | A multi-signature header during secret rotation won't verify. No guard on an empty secret. | Accept any matching `v1`; reject an empty secret.        |
+| Issue                                                              | Impact                                                                                                                                                                                            | Fix                                                                                                      |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **`flush()` sends at most 100 events on page hide** (`metrics.ts`) | A very long session can lose events beyond 100 at the end.                                                                                                                                        | Split the final flush into several `keepalive` requests.                                                 |
+| **`verifyWebhook` keeps only the last `v1=` signature**            | A multi-signature header during secret rotation won't verify. No guard on an empty secret.                                                                                                        | Accept any matching `v1`; reject an empty secret.                                                        |
+| **Inlined first playlists only help hls.js on fast networks**      | Native HLS (every iOS browser) fetches playlists itself, and on slow networks the SDK starts from `hlsLowStartUrl`, which isn't inlined. Those first videos still make the two playlist requests. | Inline the low-start master and its first variant too; for native HLS, a `<link rel="preload">` of both. |
 
 ## Operations
 

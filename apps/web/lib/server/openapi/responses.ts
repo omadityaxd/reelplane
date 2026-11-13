@@ -70,6 +70,12 @@ export const feedItem = z.strictObject({
     posterUrl: z.url().nullable(),
     placeholder: z.string().nullable(),
     renditions: z.array(rendition),
+    inline: z
+      .strictObject({ playlists: z.record(z.url(), z.string()) })
+      .optional()
+      .describe(
+        "First item of a first page only: its master and starting variant playlists, keyed by URL, so the player can skip two round trips.",
+      ),
   }),
   score: z
     .strictObject({

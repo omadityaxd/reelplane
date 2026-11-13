@@ -274,7 +274,10 @@ export class FeedController {
         // Pausing first matters: the warmer may be playing this element (now N-1 or N+2).
         engine.video.pause();
         // Preload at the same starting quality the video will play at.
-        void engine.load(source.url, "preload", { startHeight: source.startHeight });
+        void engine.load(source.url, "preload", {
+          startHeight: source.startHeight,
+          playlists: item.playback.inline?.playlists,
+        });
         return;
       }
       if (activatedAt === null) return; // already playing
@@ -338,7 +341,10 @@ export class FeedController {
     // Each activation gets its own number: after a quick A → B → A, the first activation of A
     // is stale even though A is active again, so it must not start a second tracker.
     const activation = this.activation;
-    await engine.load(source.url, "play", { startHeight: source.startHeight });
+    await engine.load(source.url, "play", {
+      startHeight: source.startHeight,
+      playlists: item.playback.inline?.playlists,
+    });
     if (this.destroyed || activation !== this.activation) return;
     const emit = (metric: PlaybackMetric) => {
       this.metrics?.push(metric);

@@ -172,9 +172,40 @@ painted frame.
 
 The first-video p95 is the first load of the page, before the JS bundle and the lazily loaded
 hls.js chunk were cached. During startup the feed shows the blurred inline placeholder and then
-the poster, so the screen is never blank. The first video still costs four sequential requests;
-shortening that is future work (for example, inlining the first rendition's playlists in the
-feed response).
+the poster, so the screen is never blank.
+
+### First video: inlining its playlists
+
+Before, the first video cost four sequential requests before a frame: the master playlist, the
+variant playlist, the init segment and the first segment. Now the feed's first page carries the
+first video's master and starting variant playlists (read from storage once, then cached in
+memory), and the SDK hands them to hls.js through its playlist loader. The first video goes
+straight to the segments.
+
+`pnpm --filter @reelplane/web bench:first-frame 10 <label>`
+([script](../apps/web/scripts/bench-first-frame.ts)). Each run is a fresh Chrome context on a
+390x844 @3x touch phone, under the DevTools "Fast 4G" throttle (9 Mbps × 0.9 down, 165 ms
+latency), loading `/bench`, which fetches its first page in the browser. Both builds were
+measured the same day, against the same local stack and bench videos (2026-11-13). Raw output:
+[`first-frame-before.json`](benchmarks/first-frame-before.json) and
+[`first-frame-after.json`](benchmarks/first-frame-after.json).
+
+| First video, n = 10 each       | Before (p50 · p95) | After (p50 · p95)     | Change             |
+| ------------------------------ | ------------------ | --------------------- | ------------------ |
+| Activation → first frame       | 1919 ms · 2190 ms  | **1205 ms · 1364 ms** | **−714 ms (−37%)** |
+| Navigation start → first frame | 2829 ms · 3085 ms  | **2092 ms · 2233 ms** | **−737 ms (−26%)** |
+
+- **These "before" numbers are higher than the 1163 ms above.** That table came from the
+  DevTools-driven runs of 2026-11-01; this script is a different harness (Playwright's Chrome,
+  CDP throttling). Compare within a table, not across them.
+- **Cross-check:** two runs in the DevTools-driven Chrome gave 2086 and 1598 ms after the change.
+  In the second (the only one inspected), resource timing showed no playlist request for the
+  first video before its first segment.
+- **Where it doesn't help yet:**
+  - **Native HLS** (Safari, every iOS browser) loads playlists itself, so iPhones still make the
+    two requests.
+  - **Slow networks:** there the SDK starts from the low-start master (`hlsLowStartUrl`), which
+    isn't inlined.
 
 ## Chaos test: the queue under hard kills
 

@@ -317,6 +317,10 @@ element    paused       playing      1 frame / 4 s       paused, ~whole clip buf
     fetching more pixels than the screen shows.
 - **Preloads are capped:** ~4 s (`maxMaxBufferLength`) until promoted, then 20–60 s. hls.js
   otherwise keeps buffering up to 60 MB, so preloads were downloading whole clips.
+- **The first video skips its playlists:** a feed's first page carries the first video's master
+  and starting variant playlists, and hls.js reads them through a playlist loader that answers
+  known URLs from memory. Its first frame came 714 ms sooner at p50 on Fast 4G
+  ([BENCHMARKS.md](BENCHMARKS.md#first-video-inlining-its-playlists)).
 - **Debug overlay:** `<ReelFeed debug />` (the demo's `?debug=1`) shows the engine, rendition,
   decoded size, bitrate, encoded vs presented fps, buffer ahead, dropped frames, start
   decision, bandwidth estimate and warming state.

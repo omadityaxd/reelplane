@@ -11,7 +11,8 @@
     "test": "vitest run",
     "dev:lan": "next dev -H 0.0.0.0 -p 3000",
     "e2e": "playwright test",
-    "openapi": "tsx scripts/openapi.ts"
+    "openapi": "tsx scripts/openapi.ts",
+    "bench:first-frame": "tsx scripts/bench-first-frame.ts"
   },
   "dependencies": {
     "@reelplane/db": "workspace:*",
