@@ -23,6 +23,7 @@ const (
 	// maxResponseLog is how much of a receiver's response body the delivery log keeps.
 	maxResponseLog = 1024
 	userAgent      = "Reelplane-Webhooks/1"
+	recordTimeout  = 10 * time.Second
 )
 
 // Options configures a Deliverer.
@@ -99,7 +100,12 @@ func (d *Deliverer) DeliverDue(ctx context.Context) (int, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = d.record(ctx, item, d.send(ctx, item))
+			result := d.send(ctx, item)
+			// Record with a context of its own: a shutdown arriving after the receiver
+			// answered must not lose the result (the delivery would be sent again).
+			recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+			defer cancel()
+			errs[i] = d.record(recordCtx, item, result)
 		}()
 	}
 	wg.Wait()

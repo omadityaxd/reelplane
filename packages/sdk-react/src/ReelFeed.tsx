@@ -73,7 +73,12 @@ function useController(props: ReelFeedProps): FeedController | null {
   onMetricRef.current = onMetric;
   // Read when a controller is created; changing them later must not rebuild the feed.
   const initial = useRef({ muted, controllerOptions, initialPage: props.initialPage });
+  // The server-rendered page belongs to the first feed only: after a switch (trending →
+  // latest, another key), the new controller fetches its own.
+  const firstFeed = useRef(`${publishableKey}|${feed}|${apiBaseUrl}`);
   useEffect(() => {
+    const isFirstFeed = firstFeed.current === `${publishableKey}|${feed}|${apiBaseUrl}`;
+    const initialPage = isFirstFeed ? initial.current.initialPage : undefined;
     const next = new FeedController({
       apiBaseUrl: apiBaseUrl ?? window.location.origin,
       publishableKey,
@@ -82,7 +87,7 @@ function useController(props: ReelFeedProps): FeedController | null {
       pageSize: pageSize ?? 10,
       muted: initial.current.muted ?? true,
       onMetric: (metric) => onMetricRef.current?.(metric),
-      ...(initial.current.initialPage ? { initialPage: initial.current.initialPage } : {}),
+      ...(initialPage ? { initialPage } : {}),
       ...initial.current.controllerOptions,
     });
     setController(next);
@@ -125,12 +130,15 @@ export function ReelFeed(props: ReelFeedProps) {
 
   useActiveItemObserver(scroller, controller, state?.items.length ?? 0);
 
-  const { onActiveChange } = props;
+  // Called once per change of video: an inline callback (a new function each render) must not
+  // re-fire it on every pause, mute or loading update.
+  const onActiveChangeRef = useRef(props.onActiveChange);
+  onActiveChangeRef.current = props.onActiveChange;
   const activeIndex = state?.activeIndex ?? -1;
   const activeItem = state?.items[activeIndex];
   useEffect(() => {
-    if (activeItem) onActiveChange?.(activeItem, activeIndex);
-  }, [activeItem, activeIndex, onActiveChange]);
+    if (activeItem) onActiveChangeRef.current?.(activeItem, activeIndex);
+  }, [activeItem, activeIndex]);
 
   const go = useCallback((delta: number) => {
     const el = scroller.current;
@@ -142,6 +150,9 @@ export function ReelFeed(props: ReelFeedProps) {
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!controller) return;
     const key = event.key;
+    // Enter and Space on a focused button (mute, next, previous) belong to that button.
+    const onButton = event.target instanceof HTMLElement && event.target.closest("button") !== null;
+    if ((key === " " || key === "Enter") && onButton) return;
     if (key === "ArrowDown" || key === "PageDown" || key === "j") go(1);
     else if (key === "ArrowUp" || key === "PageUp" || key === "k") go(-1);
     else if (key === " " || key === "Enter") {

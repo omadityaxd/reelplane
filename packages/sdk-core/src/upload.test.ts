@@ -9,7 +9,7 @@ const PART = 4;
  * A fake upload API + storage: just enough of the server contract for the client's retry,
  * resume and progress logic. Server-side behaviour is tested for real in apps/web.
  */
-function fakeServer(size: number, alreadyStored: number[] = []) {
+function fakeServer(size: number, alreadyStored: number[] = [], completeStatus = "queued") {
   const partCount = Math.ceil(size / PART);
   const stored = new Map<number, number>(
     alreadyStored.map((n) => [n, Math.min(PART, size - (n - 1) * PART)]),
@@ -46,7 +46,7 @@ function fakeServer(size: number, alreadyStored: number[] = []) {
       });
     }
     completedWith = body.parts;
-    return Response.json({ data: { id: "video-1", status: "queued" } });
+    return Response.json({ data: { id: "video-1", status: completeStatus } });
   }) as typeof fetch;
 
   const transport: PartTransport = async (url, body, onBytes) => {
@@ -87,6 +87,31 @@ describe("uploadVideo", () => {
     ]);
     expect(progress.at(-1)).toBe(10);
     expect(progress).toEqual([...progress].sort((a, b) => a - b));
+  });
+
+  it("completes when storage hides the ETag header (CORS without ExposeHeaders, e.g. Supabase)", async () => {
+    const server = fakeServer(10);
+    const hidden: PartTransport = async (url, body, onBytes) => {
+      await server.transport(url, body, onBytes);
+      return { status: 200, etag: null };
+    };
+    const result = await uploadVideo({
+      ...base,
+      file: file(10),
+      fetch: server.fetch,
+      transport: hidden,
+    });
+    expect(result.status).toBe("queued");
+    expect(server.stored.size).toBe(3); // every part sent once, none retried
+    // No ETags to vouch for: the server checks the parts against storage's own list.
+    expect(server.completed()).toEqual([]);
+  });
+
+  it("rejects a completed upload the server didn't accept (a non-video, a deleted video)", async () => {
+    const server = fakeServer(10, [], "failed");
+    await expect(
+      uploadVideo({ ...base, file: file(10), fetch: server.fetch, transport: server.transport }),
+    ).rejects.toMatchObject({ name: "UploadError", code: "api_error" });
   });
 
   it("resumes: parts storage already has are skipped and counted as progress", async () => {

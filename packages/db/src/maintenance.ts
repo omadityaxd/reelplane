@@ -45,6 +45,8 @@ export async function sweepGarbage(
   batch = 25,
 ): Promise<number> {
   return withWorker(pool, async (client) => {
+    // Never delete what a video currently publishes from (migration 0011).
+    await client.query("select reelplane.drop_published_garbage()");
     const { rows } = await client.query<GarbageItem>(
       `select prefix, attempts from reelplane.storage_garbage
         where not_before <= now() order by not_before limit $1 for update skip locked`,

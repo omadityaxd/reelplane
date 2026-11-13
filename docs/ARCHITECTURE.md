@@ -426,9 +426,17 @@ reaper:     any worker requeues (or dead-letters) running jobs whose lease expir
 
 ### Idempotent processing: unique prefix per attempt, atomic publish
 
-Each attempt writes to its own prefix, `media/<project>/<video>/<job>-a<attempt>/`, and only
+Each claim writes to its own prefix, `media/<project>/<video>/<job>-c<claim>/`, and only
 becomes visible when `Complete` points the video row at that prefix. That single fenced
-`UPDATE` is the publish. So:
+`UPDATE` is the publish.
+
+The claim number only ever increases. An independent review found the first version keyed
+the prefix on the attempt number, which a graceful release gives back (a shutdown isn't a
+failed attempt). So the next claim reused the released prefix, which the release had just
+queued as garbage, and the sweeper could later delete a published video's files. The fence
+also compares the claim number, not just the worker id: a frozen process restarted under the
+same id can't write. As a second line of defence, the sweeper drops any garbage row for a
+prefix a video currently publishes from (migration 0011). So:
 
 - a viewer can never see a half-written rendition (the row still points at nothing, or at the
   previous complete set);

@@ -180,8 +180,10 @@ function verifyParts(
       missingParts: missing.slice(0, 100),
     });
   }
+  // Providers disagree on whether an ETag carries its quotes: compare without them.
+  const bare = (etag: string | undefined) => etag?.replace(/^"|"$/g, "");
   for (const part of clientParts ?? []) {
-    if (byNumber.get(part.partNumber)?.etag !== part.etag) {
+    if (bare(byNumber.get(part.partNumber)?.etag) !== bare(part.etag)) {
       throw new ApiError(
         "invalid_request",
         `Part ${part.partNumber} does not match what storage received.`,
@@ -238,6 +240,10 @@ export async function completeUploadSession(
 ): Promise<PublicVideo> {
   const video = await getVideo(deps.pool, projectId, videoId);
   if (!video) throw new ApiError("not_found", "Upload not found.");
+  if (video.status === "failed" || video.status === "deleted") {
+    // A retried complete after the upload was rejected (not a video) must not look like success.
+    throw new ApiError("conflict", `This upload was not accepted (the video is ${video.status}).`);
+  }
   if (video.status !== "uploading") return serializeVideo(video, deps.storage);
   if (!video.partSizeBytes) throw new ApiError("conflict", "Upload is missing its session.");
 

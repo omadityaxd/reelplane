@@ -178,7 +178,7 @@ feed response).
 
 ## Chaos test: the queue under hard kills
 
-`pnpm worker:chaos -- -jobs 100 -workers 4 -kill-min 800ms -kill-max 2500ms -seed 7`, run on
+`pnpm worker:chaos -jobs 100 -workers 4 -kill-min 800ms -kill-max 2500ms -seed 7`, run on
 2026-11-01. Raw output: [`benchmarks/chaos-100-jobs.json`](benchmarks/chaos-100-jobs.json).
 
 Every 0.8–2.5 s a random worker process was terminated with `TerminateProcess` (no signal

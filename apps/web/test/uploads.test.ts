@@ -198,6 +198,16 @@ describe.each(storagesUnderTest())("upload path ($name storage)", ({ storage, tr
       await storage.headObject(`originals/${project.id}/${session.upload.videoId}/source`),
     ).toBeNull();
     expect(await jobCount(pool, project.id, session.upload.videoId)).toBe(0);
+    // A retried complete must not report the rejected upload as a success. (Its upload token
+    // already stopped working; the secret key still reaches the endpoint.)
+    const retry = await api.routes.completeUpload(
+      apiRequest(`/v1/uploads/${session.upload.videoId}/complete`, {
+        credential: secretKey.key,
+        body: {},
+      }),
+      api.ctx(session.upload.videoId),
+    );
+    expect(retry.status).toBe(409);
   });
 });
 

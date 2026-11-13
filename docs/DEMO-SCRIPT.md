@@ -21,7 +21,7 @@ the video works muted on LinkedIn and GitHub. Every number in a caption is from
   Centre → Screen Recording; long-press it to turn the microphone off).
 - [ ] Laptop: a 1920×1080 window, a clean browser profile (no bookmarks bar), terminal font 18+,
   OBS or the Xbox Game Bar (Win+Alt+R) for the screen.
-- [ ] A second terminal ready with `pnpm worker:chaos -- -jobs 30 -workers 3 -seed 7`.
+- [ ] A second terminal ready with `pnpm worker:chaos -jobs 30 -workers 3 -seed 7`.
   30 jobs keeps it under a minute.
 - [ ] Dashboard signed in. Locally that's no sign-in, or `REELPLANE_TEST_AUTH=1`: sign in with
   GitHub as your own login.

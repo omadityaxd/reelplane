@@ -88,6 +88,8 @@ export class FeedController {
   private listeners = new Set<Listener>();
   private hiddenPause = false;
   private destroyed = false;
+  /** Bumped on every setActive: identifies which activation a play() belongs to. */
+  private activation = 0;
   private state: FeedState;
 
   constructor(private readonly options: FeedControllerOptions) {
@@ -156,13 +158,16 @@ export class FeedController {
     });
     if (typeof document !== "undefined")
       document.addEventListener("visibilitychange", this.onVisibility);
+    // Registered before MetricsQueue's own pagehide flush (start() runs after attach()), so the
+    // view in progress is ended, and its watch time queued, before the final flush.
+    if (typeof window !== "undefined") window.addEventListener("pagehide", this.onPageHide);
   }
 
   /** Loads the first page and starts playing the first video. */
   async start(): Promise<void> {
     this.metrics?.start();
     if (this.state.items.length === 0) await this.loadMore();
-    if (this.state.items.length > 0) this.setActive(0, "initial");
+    if (!this.destroyed && this.state.items.length > 0) this.setActive(0, "initial");
   }
 
   setActive(index: number, trigger: "initial" | "swipe" = "swipe"): void {
@@ -174,6 +179,7 @@ export class FeedController {
     )
       return;
     const activatedAt = performance.now();
+    this.activation += 1;
     this.tracker?.end();
     this.tracker = null;
     this.update({ activeIndex: index, paused: false });
@@ -208,6 +214,7 @@ export class FeedController {
     for (const engine of this.engines) engine.unload();
     if (typeof document !== "undefined")
       document.removeEventListener("visibilitychange", this.onVisibility);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
     this.listeners.clear();
   }
 
@@ -227,6 +234,8 @@ export class FeedController {
    * active item just changed (start a new view); null when only the window grew (new page).
    */
   private applyWindow(activatedAt: number | null, trigger: "initial" | "swipe"): void {
+    // A page that arrives after destroy() must not load anything into the unloaded engines.
+    if (this.destroyed) return;
     const { items, activeIndex } = this.state;
     const plan = planWindow(activeIndex, items.length, this.window);
     const slots = assignSlots(this.state.slots, plan);
@@ -306,8 +315,11 @@ export class FeedController {
     // A kept video (swiping back) restarts from the top. A warmed or freshly preloaded video is
     // within a frame or two of the start, and a seek there would cost more than it fixes.
     if (preloaded && video.currentTime > RESTART_THRESHOLD_SECONDS) video.currentTime = 0;
+    // Each activation gets its own number: after a quick A → B → A, the first activation of A
+    // is stale even though A is active again, so it must not start a second tracker.
+    const activation = this.activation;
     await engine.load(source.url, "play", { startHeight: source.startHeight });
-    if (this.destroyed || this.state.items[this.state.activeIndex]?.id !== item.id) return;
+    if (this.destroyed || activation !== this.activation) return;
     const emit = (metric: PlaybackMetric) => {
       this.metrics?.push(metric);
       this.options.onMetric?.(metric);
@@ -362,6 +374,7 @@ export class FeedController {
     this.update({ loading: true, error: null });
     try {
       const page = await this.client.nextPage();
+      if (this.destroyed) return;
       this.update({ items: [...this.state.items, ...page], loading: false });
     } catch (error) {
       this.update({
@@ -370,6 +383,11 @@ export class FeedController {
       });
     }
   }
+
+  private readonly onPageHide = () => {
+    this.tracker?.end();
+    this.tracker = null;
+  };
 
   private readonly onVisibility = () => {
     const video = this.activeVideo();

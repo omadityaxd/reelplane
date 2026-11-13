@@ -43,9 +43,15 @@ let hlsModule: Promise<HlsModule> | null = null;
  * steering; Reelplane's renditions are single-track CMAF with muxed audio, so none apply.
  */
 function loadHls(): Promise<HlsModule> {
-  hlsModule ??= import("hls.js/light") as Promise<HlsModule>;
+  hlsModule ??= (import("hls.js/light") as Promise<HlsModule>).catch((error: unknown) => {
+    hlsModule = null; // a flaky chunk fetch must not break every later load
+    throw error;
+  });
   return hlsModule;
 }
+
+/** Fatal hls.js errors recovered per load before giving up (a stuck stream must not loop). */
+const MAX_RECOVERIES = 3;
 
 /** Preloading keeps just enough buffered to start instantly: the first ~2 s segment. */
 const PRELOAD_BUFFER_SECONDS = 3;
@@ -89,6 +95,7 @@ export function prefersNativeHls(video: HTMLVideoElement): boolean {
 export class PlaybackEngine {
   private hls: Hls | null = null;
   private src: string | null = null;
+  private mode: "preload" | "play" = "preload";
   private generation = 0;
   kind: EngineKind | null = null;
 
@@ -123,12 +130,14 @@ export class PlaybackEngine {
    * changes the mode, so a preloaded video is promoted without reloading anything.
    */
   async load(src: string, mode: "preload" | "play", options: LoadOptions = {}): Promise<void> {
+    this.mode = mode;
     if (this.src === src) {
       this.setMode(mode);
       return;
     }
     this.unload();
     this.src = src;
+    this.mode = mode;
     const generation = ++this.generation;
     const transformed = this.options.urlTransform ? this.options.urlTransform(src) : src;
 
@@ -140,7 +149,16 @@ export class PlaybackEngine {
       return;
     }
 
-    const { default: HlsClass } = await loadHls();
+    let HlsClass: HlsModule["default"];
+    try {
+      ({ default: HlsClass } = await loadHls());
+    } catch (error) {
+      if (generation !== this.generation) return;
+      // Forget this src, so the next load of it tries again instead of being a no-op.
+      this.src = null;
+      this.options.onError?.(`could not load the player: ${String(error)}`);
+      return;
+    }
     if (generation !== this.generation) return; // unloaded or replaced while importing
     if (!HlsClass.isSupported()) {
       this.kind = "native";
@@ -149,7 +167,8 @@ export class PlaybackEngine {
       return;
     }
     this.kind = "hls.js";
-    this.hls = this.createHls(HlsClass, transformed, mode, options);
+    // The mode may have changed while hls.js was importing (preloaded, then swiped to).
+    this.hls = this.createHls(HlsClass, transformed, this.mode, options);
   }
 
   private createHls(
@@ -195,8 +214,16 @@ export class PlaybackEngine {
       const level = hls.levels[data.level];
       if (level) this.options.onQualitySwitch?.({ height: level.height, bitrate: level.bitrate });
     });
+    let recoveries = 0;
     hls.on(HlsClass.Events.ERROR, (_event, data) => {
-      if (data.fatal) this.options.onError?.(`${data.type}: ${data.details}`);
+      if (!data.fatal) return;
+      // One dropped connection or decode hiccup shouldn't freeze the video for good.
+      if (recoveries < MAX_RECOVERIES) {
+        recoveries += 1;
+        if (data.type === HlsClass.ErrorTypes.NETWORK_ERROR) return hls.startLoad();
+        if (data.type === HlsClass.ErrorTypes.MEDIA_ERROR) return hls.recoverMediaError();
+      }
+      this.options.onError?.(`${data.type}: ${data.details}`);
     });
     hls.loadSource(src);
     hls.attachMedia(this.video);

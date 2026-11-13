@@ -3,6 +3,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -194,7 +195,11 @@ func defaultWorkerID() string {
 	if err != nil {
 		host = "worker"
 	}
-	return fmt.Sprintf("%s-%d", host, os.Getpid())
+	// A random suffix: in Docker the hostname survives restarts and the PID is often 1, so
+	// hostname-pid alone would give a restarted worker its old identity.
+	var suffix [3]byte
+	_, _ = rand.Read(suffix[:])
+	return fmt.Sprintf("%s-%d-%x", host, os.Getpid(), suffix)
 }
 
 func firstNonEmpty(values ...string) string {

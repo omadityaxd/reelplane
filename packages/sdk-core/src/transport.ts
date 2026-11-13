@@ -15,15 +15,46 @@ export type PartTransport = (
 ) => Promise<PartPutResult>;
 
 /** Browser transport: XHR is the only web API that reports upload progress. */
+/** A part upload that makes no progress for this long is treated as a network error. */
+const STALL_TIMEOUT_MS = 30_000;
+
 export const xhrTransport: PartTransport = (url, body, onBytes, signal) =>
   new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    let stall: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => xhr.abort();
+    const settle = () => {
+      clearTimeout(stall);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    // A stalled connection fires no event at all: without this it would never retry.
+    const armStall = () => {
+      clearTimeout(stall);
+      stall = setTimeout(() => {
+        settle();
+        xhr.abort();
+        reject(new TypeError("part upload stalled"));
+      }, STALL_TIMEOUT_MS);
+    };
     xhr.open("PUT", url);
-    xhr.upload.onprogress = (event) => onBytes(event.loaded);
-    xhr.onload = () => resolve({ status: xhr.status, etag: xhr.getResponseHeader("etag") });
-    xhr.onerror = () => reject(new TypeError("network error while uploading a part"));
-    xhr.onabort = () => reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
-    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.upload.onprogress = (event) => {
+      armStall();
+      onBytes(event.loaded);
+    };
+    xhr.onload = () => {
+      settle();
+      resolve({ status: xhr.status, etag: xhr.getResponseHeader("etag") });
+    };
+    xhr.onerror = () => {
+      settle();
+      reject(new TypeError("network error while uploading a part"));
+    };
+    xhr.onabort = () => {
+      settle();
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    armStall();
     xhr.send(body);
   });
 

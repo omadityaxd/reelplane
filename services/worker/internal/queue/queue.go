@@ -15,6 +15,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,10 +28,13 @@ const maxErrorLength = 2000
 
 // Job is a claimed transcode job together with what the worker needs from its video.
 type Job struct {
-	ID          string
-	VideoID     string
-	ProjectID   string
-	Attempt     int
+	ID        string
+	VideoID   string
+	ProjectID string
+	Attempt   int
+	// Claim is this claim's number: it only ever increases (a released job keeps its attempt
+	// count but gets a new claim), so it keys the storage prefix and the fence.
+	Claim       int
 	MaxAttempts int
 	SourceKey   string
 	ContentType string
@@ -107,7 +111,7 @@ func (q *Queue) SetGarbageDelay(d time.Duration) { q.garbageDelay = d }
 // when the video row is pointed at it, so a crashed or zombie attempt can never be seen
 // half-written and can never overwrite the attempt that wins.
 func AttemptPrefix(job *Job) string {
-	return fmt.Sprintf("%s%s-a%d", VideoMediaPrefix(job), strings.ReplaceAll(job.ID, "-", "")[:12], job.Attempt)
+	return fmt.Sprintf("%s%s-c%d", VideoMediaPrefix(job), strings.ReplaceAll(job.ID, "-", "")[:12], job.Claim)
 }
 
 // VideoMediaPrefix holds every attempt's outputs for one video.
@@ -158,11 +162,18 @@ func OpenPool(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool
 
 func seconds(d time.Duration) float64 { return d.Seconds() }
 
+// truncate makes an error message safe to store: valid UTF-8 (FFmpeg's stderr may not be), no
+// NUL bytes (Postgres text refuses them), and cut on a rune boundary.
 func truncate(message string) string {
+	message = strings.ReplaceAll(strings.ToValidUTF8(message, "\uFFFD"), "\x00", "")
 	if len(message) <= maxErrorLength {
 		return message
 	}
-	return message[:maxErrorLength]
+	cut := maxErrorLength
+	for cut > 0 && !utf8.RuneStart(message[cut]) {
+		cut--
+	}
+	return message[:cut]
 }
 
 // Claim takes the next runnable job, or returns (nil, nil) when there is none.
@@ -190,14 +201,14 @@ func (q *Queue) claimOnce(ctx context.Context) (job *Job, retry bool, err error)
 			   for update skip locked
 			)
 			update reelplane.jobs j
-			   set state = 'running', attempts = j.attempts + 1, lease_owner = $1,
+			   set state = 'running', attempts = j.attempts + 1, claims = j.claims + 1, lease_owner = $1,
 			       lease_expires_at = now() + make_interval(secs => $2), heartbeat_at = now(),
 			       started_at = coalesce(j.started_at, now()), progress = 0
 			  from next
 			 where j.id = next.id
-			returning j.id, j.video_id, j.project_id, j.attempts, j.max_attempts`,
+			returning j.id, j.video_id, j.project_id, j.attempts, j.claims, j.max_attempts`,
 			q.workerID, seconds(q.lease))
-		if err := row.Scan(&j.ID, &j.VideoID, &j.ProjectID, &j.Attempt, &j.MaxAttempts); err != nil {
+		if err := row.Scan(&j.ID, &j.VideoID, &j.ProjectID, &j.Attempt, &j.Claim, &j.MaxAttempts); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
 			}
@@ -245,8 +256,8 @@ func (q *Queue) Heartbeat(ctx context.Context, job *Job, progress int) error {
 		update reelplane.jobs
 		   set lease_expires_at = now() + make_interval(secs => $3), heartbeat_at = now(),
 		       progress = greatest(progress, $4)
-		 where id = $1 and state = 'running' and lease_owner = $2`,
-		job.ID, q.workerID, seconds(q.lease), min(max(progress, 0), 99))
+		 where id = $1 and state = 'running' and lease_owner = $2 and claims = $5`,
+		job.ID, q.workerID, seconds(q.lease), min(max(progress, 0), 99), job.Claim)
 	if err != nil {
 		return fmt.Errorf("heartbeat: %w", err)
 	}
@@ -256,17 +267,20 @@ func (q *Queue) Heartbeat(ctx context.Context, job *Job, progress int) error {
 	return nil
 }
 
-// fence locks the job row and verifies we still hold its lease, inside the caller's tx.
+// fence locks the job row and verifies we still hold its lease, inside the caller's tx: same
+// owner AND same claim, so a frozen process that comes back under the same worker id after its
+// job was reaped and re-claimed can't write.
 func (q *Queue) fence(ctx context.Context, tx pgx.Tx, job *Job) error {
 	var state string
 	var owner *string
+	var claim int
 	err := tx.QueryRow(ctx,
-		`select state, lease_owner from reelplane.jobs where id = $1 for update`, job.ID,
-	).Scan(&state, &owner)
+		`select state, lease_owner, claims from reelplane.jobs where id = $1 for update`, job.ID,
+	).Scan(&state, &owner, &claim)
 	if err != nil {
 		return fmt.Errorf("lock job: %w", err)
 	}
-	if state != "running" || owner == nil || *owner != q.workerID {
+	if state != "running" || owner == nil || *owner != q.workerID || claim != job.Claim {
 		return ErrLeaseLost
 	}
 	return nil
@@ -423,7 +437,7 @@ func (q *Queue) ReapExpired(ctx context.Context) (int, error) {
 	reaped := 0
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			select id, video_id, project_id, attempts, max_attempts, lease_owner
+			select id, video_id, project_id, attempts, claims, max_attempts, lease_owner
 			  from reelplane.jobs
 			 where state = 'running' and lease_expires_at < now()
 			 order by lease_expires_at
@@ -439,7 +453,7 @@ func (q *Queue) ReapExpired(ctx context.Context) (int, error) {
 		var found []expired
 		for rows.Next() {
 			var e expired
-			if err := rows.Scan(&e.job.ID, &e.job.VideoID, &e.job.ProjectID, &e.job.Attempt, &e.job.MaxAttempts, &e.owner); err != nil {
+			if err := rows.Scan(&e.job.ID, &e.job.VideoID, &e.job.ProjectID, &e.job.Attempt, &e.job.Claim, &e.job.MaxAttempts, &e.owner); err != nil {
 				rows.Close()
 				return fmt.Errorf("scan expired lease: %w", err)
 			}
@@ -468,6 +482,10 @@ const garbageBatch = 20
 // claimed with SKIP LOCKED so workers sweep in parallel; a failed deletion is retried later
 // with backoff instead of being forgotten.
 func (q *Queue) SweepGarbage(ctx context.Context, remove func(context.Context, string) error) (int, error) {
+	// Never delete what a video currently publishes from (migration 0011).
+	if _, err := q.pool.Exec(ctx, `select reelplane.drop_published_garbage()`); err != nil {
+		return 0, fmt.Errorf("drop published garbage: %w", err)
+	}
 	swept := 0
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `

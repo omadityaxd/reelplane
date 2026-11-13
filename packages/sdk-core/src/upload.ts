@@ -69,13 +69,19 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
-function isSuccess(result: PartPutResult | null): result is { status: number; etag: string } {
-  return result !== null && result.status >= 200 && result.status < 300 && result.etag !== null;
+/**
+ * A 2xx stored the part. Its ETag is optional: a provider whose CORS doesn't expose the header
+ * (Supabase Storage) still stored it, and the server checks every part against storage's own
+ * list when the upload completes.
+ */
+function isSuccess(result: PartPutResult | null): boolean {
+  return result !== null && result.status >= 200 && result.status < 300;
 }
 
 /** One upload attempt. A fresh instance per `uploadVideo` call; resuming = a new attempt. */
 class MultipartUpload {
-  private readonly etags = new Map<number, string>();
+  /** Parts storage has, with their ETag when the browser could read it. */
+  private readonly etags = new Map<number, string | null>();
   private readonly urls = new Map<number, string>();
   private readonly inFlight = new Map<number, number>();
   private completedBytes = 0;
@@ -98,9 +104,14 @@ class MultipartUpload {
     await this.start();
     await this.uploadPending(this.options.concurrency ?? DEFAULT_CONCURRENCY);
     const parts = [...this.etags.entries()]
+      .filter((entry): entry is [number, string] => entry[1] !== null)
       .sort(([a], [b]) => a - b)
       .map(([partNumber, etag]) => ({ partNumber, etag }));
-    return this.withRetries(() => this.post<UploadedVideo>("complete", { parts }));
+    const video = await this.withRetries(() => this.post<UploadedVideo>("complete", { parts }));
+    if (video.status === "failed" || video.status === "deleted") {
+      throw new UploadError("api_error", `The upload was not accepted (video ${video.status}).`);
+    }
+    return video;
   }
 
   /** Asks the server what storage already holds; that is where a resumed upload starts. */
@@ -151,7 +162,7 @@ class MultipartUpload {
       // synchronous step: other parts settle in between awaits, and splitting the two updates
       // across an await made progress dip backwards.
       this.inFlight.delete(partNumber);
-      if (isSuccess(result)) {
+      if (result && isSuccess(result)) {
         this.etags.set(partNumber, result.etag);
         this.completedBytes += body.size;
         this.report();

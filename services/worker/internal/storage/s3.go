@@ -185,10 +185,18 @@ func (s *S3) DeletePrefix(ctx context.Context, prefix string) (int, error) {
 		for i := range batch {
 			objects[i] = types.ObjectIdentifier{Key: aws.String(batch[i])}
 		}
-		if _, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+		out, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 			Bucket: &s.bucket, Delete: &types.Delete{Objects: objects, Quiet: aws.Bool(true)},
-		}); err != nil {
+		})
+		if err != nil {
 			return start, fmt.Errorf("delete under %s: %w", prefix, err)
+		}
+		// A 200 can still carry per-object failures: report them, so the sweep retries later
+		// instead of forgetting objects that are still there.
+		if len(out.Errors) > 0 {
+			first := out.Errors[0]
+			return start, fmt.Errorf("delete under %s: %d objects failed, e.g. %s: %s",
+				prefix, len(out.Errors), aws.ToString(first.Key), aws.ToString(first.Message))
 		}
 	}
 	return len(keys), nil
