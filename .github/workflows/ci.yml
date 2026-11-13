@@ -1,0 +1,69 @@
+# Lint, typecheck and every unit/integration test (TypeScript and Go) against a real Postgres:
+# the same `pnpm check` as on a laptop. The Playwright e2e suites need the whole stack and a
+# browser with H.264, so they stay local (see apps/web/playwright.config.ts).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        # Same image as docker-compose.yml; the port the tests default to (54320).
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: reelplane
+          POSTGRES_PASSWORD: reelplane
+          POSTGRES_DB: reelplane
+        ports:
+          - 54320:5432
+        options: >-
+          --health-cmd "pg_isready -U reelplane -d reelplane"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgres://reelplane:reelplane@localhost:54320/reelplane
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4 # version from package.json's packageManager
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: services/worker/go.mod
+          cache-dependency-path: services/worker/go.sum
+
+      # The worker's tests transcode real clips. Ubuntu's FFmpeg (6.1) lacks options they use
+      # (-display_rotation is 7.0+), so use a static 9.0 build, the version used in development.
+      - name: Install FFmpeg 9.0
+        run: |
+          curl -fsSL -o ffmpeg.tar.xz \
+            https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz
+          mkdir -p "$RUNNER_TEMP/ffmpeg"
+          tar -xJf ffmpeg.tar.xz -C "$RUNNER_TEMP/ffmpeg" --strip-components=1
+          echo "$RUNNER_TEMP/ffmpeg/bin" >> "$GITHUB_PATH"
+      - run: ffmpeg -hide_banner -version | head -1
+
+      - name: Migrate the database
+        run: pnpm db:migrate
+
+      # lint → typecheck → TypeScript tests → gofmt + go vet → Go tests
+      - run: pnpm check
