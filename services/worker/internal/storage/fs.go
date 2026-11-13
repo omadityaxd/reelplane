@@ -18,7 +18,7 @@ type Dir struct{ Root string }
 
 func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.FromSlash(key)) }
 
-func (d Dir) Download(_ context.Context, key, dst string) error {
+func (d Dir) Download(_ context.Context, key, dst string, maxBytes int64) error {
 	src, err := os.Open(d.path(key))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -31,7 +31,7 @@ func (d Dir) Download(_ context.Context, key, dst string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, src); err != nil {
+	if err := copyLimited(out, src, maxBytes); err != nil {
 		_ = out.Close()
 		return err
 	}

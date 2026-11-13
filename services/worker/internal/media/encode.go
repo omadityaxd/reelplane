@@ -3,9 +3,11 @@ package media
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +34,9 @@ type EncodePlan struct {
 	// HDR sources are tone-mapped to SDR BT.709 (H.264 8-bit renditions).
 	HDR      bool
 	HasAudio bool
-	Preset   string
+	// VideoStream selects the source's video stream (Probe.VideoStream).
+	VideoStream int
+	Preset      string
 	// Threads is how many CPUs the encode may use (0 = FFmpeg's default: every core it can
 	// see). In a container with a CPU quota FFmpeg still sees all the host's cores, so each
 	// encoder would start that many threads; measured on a 2-CPU container, a 1080p60 encode
@@ -50,7 +54,7 @@ func encoderThreads(threads, rungs int) int {
 func HLSArgs(plan EncodePlan) []string {
 	n := len(plan.Rungs)
 	var filter strings.Builder
-	filter.WriteString("[0:v]")
+	fmt.Fprintf(&filter, "[0:v:%d]", plan.VideoStream)
 	if plan.HDR {
 		filter.WriteString(ToneMapFilter + ",")
 	}
@@ -71,6 +75,7 @@ func HLSArgs(plan EncodePlan) []string {
 		t := strconv.Itoa(plan.Threads)
 		args = append(args, "-threads", t, "-filter_complex_threads", t)
 	}
+	args = append(args, InputGuard...)
 	args = append(args,
 		"-i", plan.Input,
 		"-filter_complex", filter.String(),
@@ -142,11 +147,64 @@ func Transcode(ctx context.Context, ffmpeg string, plan EncodePlan, duration tim
 	readProgress(stdout, duration, onProgress)
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return context.Cause(ctx)
 		}
-		return fmt.Errorf("ffmpeg failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return ClassifyFailure(fmt.Errorf("ffmpeg failed: %w", err), stderr.String())
 	}
 	return nil
+}
+
+// Phrases FFmpeg prints when the input itself is broken: corrupt or truncated data, a codec it
+// cannot decode, a demuxer or protocol the InputGuard refuses. Encoding the same bytes again
+// fails the same way.
+var inputFailures = []string{
+	"Invalid data found when processing input",
+	"moov atom not found",
+	"Error opening input",
+	"Error while decoding stream",
+	"Error splitting the input into NAL units",
+	"Invalid NAL unit size",
+	"Could not find codec parameters",
+	"Decoding requested, but no decoder found",
+	"Unsupported codec",
+	"not on whitelist",
+}
+
+// Phrases that point at the machine instead (disk, memory, a signal): worth retrying even when
+// an input phrase also appears.
+var environmentFailures = []string{
+	"No space left on device",
+	"Cannot allocate memory",
+	"Resource temporarily unavailable",
+	"Killed",
+}
+
+// ClassifyFailure turns a failed FFmpeg run into an InvalidInputError (do not retry) when its
+// stderr blames the input, and otherwise keeps it retryable. The stderr is kept in both.
+func ClassifyFailure(err error, stderr string) error {
+	stderr = strings.TrimSpace(stderr)
+	// Killed by a signal (the OOM killer, say): the stderr's decode warnings are not why.
+	var exit *exec.ExitError
+	permanent := !(errors.As(err, &exit) && exit.ExitCode() == -1)
+	matched := false
+	for _, phrase := range inputFailures {
+		matched = matched || strings.Contains(stderr, phrase)
+	}
+	permanent = permanent && matched
+	for _, phrase := range environmentFailures {
+		permanent = permanent && !strings.Contains(stderr, phrase)
+	}
+	if permanent {
+		return &InvalidInputError{Reason: "FFmpeg could not decode the file: " + lastLine(stderr)}
+	}
+	return fmt.Errorf("%w: %s", err, stderr)
+}
+
+func lastLine(text string) string {
+	if i := strings.LastIndexByte(text, '\n'); i >= 0 {
+		return strings.TrimSpace(text[i+1:])
+	}
+	return text
 }
 
 // readProgress parses FFmpeg's `-progress` key=value stream (out_time_us is microseconds).

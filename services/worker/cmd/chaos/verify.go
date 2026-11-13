@@ -157,7 +157,7 @@ func missingReferences(ctx context.Context, store storage.Store, masterKey strin
 // (variant playlists, EXT-X-MAP init segments, media segments).
 func playlistURIs(ctx context.Context, store storage.Store, key, tmp string) ([]string, error) {
 	local := filepath.Join(tmp, strings.NewReplacer("/", "_").Replace(key))
-	if err := store.Download(ctx, key, local); err != nil {
+	if err := store.Download(ctx, key, local, 0); err != nil {
 		return nil, err
 	}
 	file, err := os.Open(local)

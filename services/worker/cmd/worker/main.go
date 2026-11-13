@@ -63,7 +63,7 @@ func run() error {
 		Store: store, FFmpeg: cfg.FFmpegPath, FFprobe: cfg.FFprobePath, Preset: cfg.Preset,
 		Threads: cfg.FFmpegThreads,
 		Limits:  media.Limits{MaxDuration: cfg.MaxDuration, MaxSide: maxSourceSide, MinSide: minSourceSide},
-		TempDir: cfg.TempDir,
+		TempDir: cfg.TempDir, JobTimeout: cfg.JobTimeout,
 	}
 	w := worker.New(q, p, store, worker.Options{
 		HeartbeatInterval: cfg.HeartbeatInterval,

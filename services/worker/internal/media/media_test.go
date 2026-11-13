@@ -256,7 +256,7 @@ func TestHLSArgsThreadBudget(t *testing.T) {
 	// 2 CPUs, 4 rungs: decode and filters get 2, each parallel encoder 1.
 	plan.Threads = 2
 	args := strings.Join(HLSArgs(plan), " ")
-	for _, want := range []string{"-threads 2 -filter_complex_threads 2 -i in.mp4", "-threads:v:0 1", "-threads:v:3 1"} {
+	for _, want := range []string{"-threads 2 -filter_complex_threads 2 -protocol_whitelist file -format_whitelist mov,matroska -i in.mp4", "-threads:v:0 1", "-threads:v:3 1"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args missing %q\n%s", want, args)
 		}

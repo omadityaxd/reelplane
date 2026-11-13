@@ -56,14 +56,21 @@ func TestStoreContract(t *testing.T) {
 			}
 
 			dst := filepath.Join(t.TempDir(), "out")
-			if err := store.Download(ctx, prefix+"/attempt-1/240p/seg_000.m4s", dst); err != nil {
+			if err := store.Download(ctx, prefix+"/attempt-1/240p/seg_000.m4s", dst, 0); err != nil {
 				t.Fatal(err)
 			}
 			if body, _ := os.ReadFile(dst); string(body) != "240p/seg_000.m4s" {
 				t.Fatalf("downloaded %q", body)
 			}
-			if err := store.Download(ctx, prefix+"/missing", dst); !errors.Is(err, ErrNotFound) {
+			if err := store.Download(ctx, prefix+"/missing", dst, 0); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("missing key err = %v", err)
+			}
+			// "240p/seg_000.m4s" is 16 bytes: exactly the limit passes, one byte under fails.
+			if err := store.Download(ctx, prefix+"/attempt-1/240p/seg_000.m4s", dst, 16); err != nil {
+				t.Fatalf("download at the limit: %v", err)
+			}
+			if err := store.Download(ctx, prefix+"/attempt-1/240p/seg_000.m4s", dst, 15); !errors.Is(err, ErrTooLarge) {
+				t.Fatalf("download over the limit err = %v, want ErrTooLarge", err)
 			}
 
 			if n, err := store.DeletePrefix(ctx, prefix+"/"); err != nil || n != 4 {

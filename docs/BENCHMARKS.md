@@ -179,24 +179,28 @@ feed response).
 ## Chaos test: the queue under hard kills
 
 `pnpm worker:chaos -jobs 100 -workers 4 -kill-min 800ms -kill-max 2500ms -seed 7`, run on
-2026-11-01. Raw output: [`benchmarks/chaos-100-jobs.json`](benchmarks/chaos-100-jobs.json).
+2026-11-01 and again on 2026-11-13, after the claim counter (migration 0011) and the worker
+robustness changes (deadlines, the download cap, the FFmpeg input guard). Raw output:
+[`benchmarks/chaos-100-jobs.json`](benchmarks/chaos-100-jobs.json) and
+[`benchmarks/chaos-100-jobs-2026-11-13.json`](benchmarks/chaos-100-jobs-2026-11-13.json).
 
 Every 0.8–2.5 s a random worker process was terminated with `TerminateProcess` (no signal
 handler, no cleanup, FFmpeg killed with it) and restarted 0.2–1.5 s later. Lease 4 s, heartbeat
 1 s. Each job transcodes an 8 s 720x1280 clip into 3 renditions.
 
-| Measure                                               | Result                                  |
-| ----------------------------------------------------- | --------------------------------------- |
-| Jobs                                                  | 100                                     |
-| Workers killed                                        | **64** (59 while holding a job)         |
-| Jobs recovered after a lease expired                  | 59                                      |
-| Attempts per job                                      | 1: 64 jobs · 2: 21 · 3: 8 · 4: 6 · 5: 1 |
-| **Jobs succeeded**                                    | **100 / 100**                           |
-| **Videos completed exactly once**                     | **100 / 100**                           |
-| Videos with duplicate jobs                            | **0**                                   |
-| Playlists complete in storage (every segment present) | 100 / 100                               |
-| Orphaned objects left by killed attempts              | **0**                                   |
-| Wall time                                             | 1 min 49 s                              |
+| Measure                                               | 2026-11-01                              | 2026-11-13                               |
+| ----------------------------------------------------- | --------------------------------------- | ---------------------------------------- |
+| Jobs                                                  | 100                                     | 100                                      |
+| Workers killed                                        | **64** (59 while holding a job)         | **72** (65 while holding a job)          |
+| Jobs recovered after a lease expired                  | 59                                      | 64                                       |
+| Attempts per job                                      | 1: 64 jobs · 2: 21 · 3: 8 · 4: 6 · 5: 1 | 1: 60 jobs · 2: 24 · 3: 10 · 4: 4 · 5: 2 |
+| **Jobs succeeded**                                    | **100 / 100**                           | **100 / 100**                            |
+| **Videos completed exactly once**                     | **100 / 100**                           | **100 / 100**                            |
+| Videos with duplicate jobs                            | **0**                                   | **0**                                    |
+| Playlists complete in storage (every segment present) | 100 / 100                               | 100 / 100                                |
+| Orphaned objects left by killed attempts              | **0**                                   | **0**                                    |
+| Mean transcode speed (3 rungs, 4 workers sharing CPU) | 7.2× realtime                           | 7.4× realtime                            |
+| Wall time                                             | 1 min 49 s                              | 2 min 5 s                                |
 
 The same configuration with 40 jobs and 3 workers (seed 42) also passes: 18 kills, 40/40 exactly
 once, 0 orphans. The first run of that configuration found **46 orphaned objects**, which led to

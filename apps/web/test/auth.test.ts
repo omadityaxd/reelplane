@@ -183,7 +183,9 @@ describe("rate limits", () => {
     const route = limited({ ...RULE, name: `pre-auth-${randomUUID()}` });
     const address = `192.0.2.${Math.floor(Math.random() * 250)}`;
     const statuses = new Set<number>();
-    for (let i = 0; i < 20; i += 1)
+    // 40 = over twice the budget of 18: even if a fixed window ends mid-loop, one side of the
+    // boundary still sees at least 20 hits.
+    for (let i = 0; i < 40; i += 1)
       statuses.add((await route(from(address, generateApiKey("secret")))).status);
     expect(statuses).toEqual(new Set([401, 429]));
   });

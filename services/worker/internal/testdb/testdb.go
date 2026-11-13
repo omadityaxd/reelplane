@@ -73,6 +73,9 @@ func (db *DB) SeedJob(t *testing.T, projectID string, maxAttempts int) Seeded {
 	return s
 }
 
+// seedSizeBytes is the declared upload size: the worker refuses to download more than this.
+const seedSizeBytes = 100 << 20
+
 // SeedJob is the non-test form, shared with the chaos run.
 func SeedJob(ctx context.Context, owner *pgxpool.Pool, projectID string, maxAttempts int) (Seeded, error) {
 	if projectID == "" {
@@ -85,7 +88,7 @@ func SeedJob(ctx context.Context, owner *pgxpool.Pool, projectID string, maxAtte
 	s := Seeded{ProjectID: projectID}
 	if err := owner.QueryRow(ctx, `
 		insert into reelplane.videos (project_id, status, content_type, size_bytes, source_key)
-		values ($1, 'uploading', 'video/mp4', 1000, 'pending') returning id`, projectID).Scan(&s.VideoID); err != nil {
+		values ($1, 'uploading', 'video/mp4', $2, 'pending') returning id`, projectID, seedSizeBytes).Scan(&s.VideoID); err != nil {
 		return Seeded{}, fmt.Errorf("seed video: %w", err)
 	}
 	s.SourceKey = fmt.Sprintf("originals/%s/%s/source", projectID, s.VideoID)

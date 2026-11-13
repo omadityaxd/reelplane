@@ -40,6 +40,9 @@ type Probe struct {
 	VariableFPS bool
 	HasAudio    bool
 	VideoCodec  string
+	// VideoStream is the probed stream's position among the file's video streams, for
+	// FFmpeg's `0:v:N`: plain `[0:v]` would pick cover art if that comes first.
+	VideoStream int
 	// ColorTransfer is the transfer characteristic, e.g. "bt709", "arib-std-b67" (HLG, iPhone
 	// HDR / Dolby Vision 8.4) or "smpte2084" (PQ / HDR10).
 	ColorTransfer string
@@ -59,6 +62,7 @@ type ffprobeOutput struct {
 		CodecName     string            `json:"codec_name"`
 		Width         int               `json:"width"`
 		Height        int               `json:"height"`
+		Duration      string            `json:"duration"`
 		RFrameRate    string            `json:"r_frame_rate"`
 		AvgFrameRate  string            `json:"avg_frame_rate"`
 		ColorTransfer string            `json:"color_transfer"`
@@ -89,12 +93,23 @@ func ParseProbe(raw []byte) (Probe, error) {
 	}
 	var p Probe
 	foundVideo := false
+	videoStreams := 0
+	var streamDuration time.Duration
 	for _, s := range out.Streams {
+		if s.CodecType == "video" {
+			videoStreams++
+		}
 		switch {
 		case s.CodecType == "audio":
 			p.HasAudio = true
 		case s.CodecType == "video" && s.Disposition.AttachedPic == 0 && !stillImageCodecs[s.CodecName] && !foundVideo:
 			foundVideo = true
+			p.VideoStream = videoStreams - 1
+			streamDuration = parseSeconds(s.Duration)
+			if streamDuration == 0 {
+				// Matroska/WebM keeps a per-stream "DURATION" tag (HH:MM:SS.nnnnnnnnn).
+				streamDuration = parseClock(s.Tags["DURATION"])
+			}
 			p.VideoCodec = s.CodecName
 			p.CodedWidth, p.CodedHeight = s.Width, s.Height
 			p.Rotation = rotationOf(s.Tags, s.SideDataList)
@@ -116,11 +131,59 @@ func ParseProbe(raw []byte) (Probe, error) {
 	if r := ((p.Rotation % 360) + 360) % 360; r == 90 || r == 270 {
 		p.Width, p.Height = p.CodedHeight, p.CodedWidth
 	}
-	seconds, err := strconv.ParseFloat(out.Format.Duration, 64)
-	if err == nil && seconds > 0 {
-		p.Duration = time.Duration(seconds * float64(time.Second))
+	// The container's duration first, then the video stream's. ProbeFile falls back further
+	// to reading packet timestamps.
+	p.Duration = parseSeconds(out.Format.Duration)
+	if p.Duration == 0 {
+		p.Duration = streamDuration
 	}
 	return p, nil
+}
+
+func parseSeconds(raw string) time.Duration {
+	seconds, err := strconv.ParseFloat(raw, 64)
+	if err != nil || !(seconds > 0) || math.IsInf(seconds, 0) {
+		return 0
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
+// parseClock reads "HH:MM:SS.fraction".
+func parseClock(raw string) time.Duration {
+	parts := strings.Split(raw, ":")
+	if len(parts) != 3 {
+		return 0
+	}
+	hours, errH := strconv.Atoi(parts[0])
+	minutes, errM := strconv.Atoi(parts[1])
+	if errH != nil || errM != nil || hours < 0 || minutes < 0 {
+		return 0
+	}
+	seconds := parseSeconds(parts[2])
+	if seconds == 0 {
+		return 0
+	}
+	return time.Duration(hours)*time.Hour + time.Duration(minutes)*time.Minute + seconds
+}
+
+// ParsePacketEnd returns where the last packet ends, from ffprobe's
+// `packet=pts_time,duration_time` CSV: the duration of a file whose headers lack one (a WebM
+// recorded by a browser's MediaRecorder).
+func ParsePacketEnd(csv []byte) time.Duration {
+	var end float64
+	for line := range strings.Lines(string(csv)) {
+		pts, dur, _ := strings.Cut(strings.TrimSpace(line), ",")
+		start, err := strconv.ParseFloat(pts, 64)
+		if err != nil {
+			continue // packets without a timestamp report "N/A"
+		}
+		length, _ := strconv.ParseFloat(dur, 64)
+		end = max(end, start+length)
+	}
+	if !(end > 0) || math.IsInf(end, 0) {
+		return 0
+	}
+	return time.Duration(end * float64(time.Second))
 }
 
 func rotationOf(tags map[string]string, sideData []struct {
@@ -177,16 +240,38 @@ func (p Probe) Validate(limits Limits) error {
 	return nil
 }
 
+// InputGuard goes before every `-i` of an uploaded file. Content sniffing would otherwise let
+// an upload that is really a playlist (HLS, concat, SDP) make FFmpeg open other files or URLs:
+// only local files, and only the MP4/MOV and Matroska/WebM demuxers the API accepts.
+var InputGuard = []string{"-protocol_whitelist", "file", "-format_whitelist", "mov,matroska"}
+
 // ProbeFile runs ffprobe on a local file.
 func ProbeFile(ctx context.Context, ffprobe, path string) (Probe, error) {
-	cmd := proc.Command(ctx, ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", path)
-	output, err := proc.Output(cmd)
+	args := append(append([]string{"-v", "error"}, InputGuard...),
+		"-print_format", "json", "-show_streams", "-show_format", path)
+	output, err := proc.Output(proc.Command(ctx, ffprobe, args...))
 	if err != nil {
 		if ctx.Err() != nil {
-			return Probe{}, ctx.Err()
+			return Probe{}, context.Cause(ctx)
 		}
 		// ffprobe fails on files that are not media at all.
 		return Probe{}, &InvalidInputError{Reason: "not a readable video file"}
 	}
-	return ParseProbe(output)
+	p, err := ParseProbe(output)
+	if err != nil || p.Duration > 0 {
+		return p, err
+	}
+	// No duration in any header: read the video packets' timestamps (no decoding).
+	args = append(append([]string{"-v", "error"}, InputGuard...),
+		"-select_streams", fmt.Sprintf("v:%d", p.VideoStream),
+		"-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0", path)
+	packets, err := proc.Output(proc.Command(ctx, ffprobe, args...))
+	if err != nil {
+		if ctx.Err() != nil {
+			return Probe{}, context.Cause(ctx)
+		}
+		return p, nil // Validate rejects the unknown duration
+	}
+	p.Duration = ParsePacketEnd(packets)
+	return p, nil
 }

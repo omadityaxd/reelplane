@@ -40,6 +40,9 @@ type Config struct {
 	RetryMax          time.Duration
 	CleanupEvery      time.Duration
 	DemoMaxAge        time.Duration
+	// JobTimeout bounds one job end to end; the encode has its own, tighter deadline
+	// (pipeline.EncodeDeadline).
+	JobTimeout time.Duration
 
 	// Webhook deliveries (see internal/webhooks).
 	WebhookTimeout     time.Duration
@@ -94,6 +97,7 @@ func load(env getenv) (Config, error) {
 		RetryMax:          duration("WORKER_RETRY_MAX", 10*time.Minute),
 		CleanupEvery:      duration("WORKER_CLEANUP_INTERVAL", 10*time.Minute),
 		DemoMaxAge:        duration("DEMO_VIDEO_MAX_AGE", 7*24*time.Hour),
+		JobTimeout:        duration("WORKER_JOB_TIMEOUT", 45*time.Minute),
 		WebhookTimeout:    duration("WEBHOOK_TIMEOUT", 10*time.Second),
 		WebhookRetryBase:  duration("WEBHOOK_RETRY_BASE", 30*time.Second),
 		WebhookRetryMax:   duration("WEBHOOK_RETRY_MAX", time.Hour),

@@ -260,3 +260,83 @@ func TestTransientFailuresAreRetriedWithBackoff(t *testing.T) {
 		t.Fatalf("state=%s retry in %s; want queued with a 1h backoff", state, time.Until(runAfter).Round(time.Minute))
 	}
 }
+
+// seedClip seeds a job whose source is a real 2-second clip.
+func seedClip(t *testing.T, db *testdb.DB, store storage.Store) testdb.Seeded {
+	t.Helper()
+	seed := db.SeedJob(t, "", 5)
+	clip := filepath.Join(t.TempDir(), "clip.mp4")
+	if err := media.GenerateClip(context.Background(), "ffmpeg", clip, media.Clip{Width: 360, Height: 640, Duration: 2 * time.Second, FPS: 30}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(clip)
+	if err := store.Put(context.Background(), seed.SourceKey, body, "video/mp4"); err != nil {
+		t.Fatal(err)
+	}
+	return seed
+}
+
+func TestASourceLargerThanDeclaredIsRefusedWithoutRetrying(t *testing.T) {
+	requireFFmpeg(t)
+	db := testdb.New(t, "reelplane_test_worker_oversize")
+	store := storage.Dir{Root: t.TempDir()}
+	seed := seedClip(t, db, store)
+	// The upload declared 100 bytes; storage holds the whole clip.
+	if _, err := db.Owner.Exec(context.Background(), `update reelplane.videos set size_bytes = 100 where id = $1`, seed.VideoID); err != nil {
+		t.Fatal(err)
+	}
+
+	w := worker.New(newQueue(db, "w", 10*time.Second), realPipeline(store), store, fastOpts, quiet)
+	runUntil(t, w, 30*time.Second, func() bool { return jobState(t, db, seed.JobID) == "dead" })
+
+	attempts := testdb.Scalar[int](t, db, `select attempts from reelplane.jobs where id = $1`, seed.JobID)
+	reason := testdb.Scalar[string](t, db, `select failure_reason from reelplane.videos where id = $1`, seed.VideoID)
+	if attempts != 1 || !strings.Contains(reason, "larger than the declared 100 bytes") {
+		t.Fatalf("attempts=%d reason=%q", attempts, reason)
+	}
+}
+
+func TestAnEncodePastItsDeadlineIsStoppedAndRetried(t *testing.T) {
+	requireFFmpeg(t)
+	db := testdb.New(t, "reelplane_test_worker_deadline")
+	store := storage.Dir{Root: t.TempDir()}
+	seed := seedClip(t, db, store)
+	p := realPipeline(store)
+	p.EncodeDeadline = func(time.Duration) time.Duration { return 50 * time.Millisecond }
+
+	w := worker.New(newQueue(db, "w", 10*time.Second), p, store, fastOpts, quiet)
+	runUntil(t, w, 30*time.Second, func() bool {
+		return testdb.Scalar[string](t, db, `select coalesce(last_error, '') from reelplane.jobs where id = $1`, seed.JobID) != ""
+	})
+
+	lastError := testdb.Scalar[string](t, db, `select last_error from reelplane.jobs where id = $1`, seed.JobID)
+	if state := jobState(t, db, seed.JobID); state != "queued" || !strings.Contains(lastError, "encoding took longer than 50ms") {
+		t.Fatalf("state=%s last_error=%q; want a retryable deadline failure", state, lastError)
+	}
+}
+
+// stalledStore never finishes a download, like a storage connection that hangs.
+type stalledStore struct{ storage.Dir }
+
+func (stalledStore) Download(ctx context.Context, _, _ string, _ int64) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestAJobPastItsTimeoutIsStoppedAndRetried(t *testing.T) {
+	db := testdb.New(t, "reelplane_test_worker_job_timeout")
+	seed := db.SeedJob(t, "", 5)
+	store := stalledStore{storage.Dir{Root: t.TempDir()}}
+	p := realPipeline(store)
+	p.JobTimeout = 200 * time.Millisecond
+
+	w := worker.New(newQueue(db, "w", 10*time.Second), p, store, fastOpts, quiet)
+	runUntil(t, w, 10*time.Second, func() bool {
+		return testdb.Scalar[string](t, db, `select coalesce(last_error, '') from reelplane.jobs where id = $1`, seed.JobID) != ""
+	})
+
+	lastError := testdb.Scalar[string](t, db, `select last_error from reelplane.jobs where id = $1`, seed.JobID)
+	if state := jobState(t, db, seed.JobID); state != "queued" || !strings.Contains(lastError, "job took longer than 200ms") {
+		t.Fatalf("state=%s last_error=%q; want a retryable timeout", state, lastError)
+	}
+}

@@ -583,7 +583,12 @@ if the app persists `{videoId, token}`.
    header that matches the declared type. HEIC/AVIF photos and M4A audio also use `ftyp`, so
    their brands are rejected explicitly; a renamed iPhone photo is refused. A rejected file is
    deleted and the video moves to `failed` with a reason.
-4. **The worker's `ffprobe` (Phase 4):** the authoritative check for duration and streams.
+4. **The worker's `ffprobe` (Phase 4):** the authoritative check for duration and streams. The
+   worker downloads at most the declared `size_bytes`. Every FFmpeg and ffprobe input is
+   limited to local files and the MP4/MOV and Matroska/WebM demuxers, so an upload that is
+   really a concat or HLS playlist can't make FFmpeg open anything else. FFmpeg failures that
+   blame the input fail the job at once; anything else is retried. The encode has a deadline
+   of 2 min + 20× the video's length.
 
 ### Idempotency
 

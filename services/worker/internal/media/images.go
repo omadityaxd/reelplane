@@ -61,23 +61,25 @@ func GenerateImages(ctx context.Context, ffmpeg, input, outDir string, probe Pro
 
 func still(ctx context.Context, ffmpeg, input, output string, at time.Duration, probe Probe, short int, extraFilter string, quality int) error {
 	w, h := ScaleToShortSide(probe.Width, probe.Height, min(short, min(probe.Width, probe.Height)))
-	args := []string{
-		"-hide_banner", "-nostdin", "-y", "-v", "error",
+	args := []string{"-hide_banner", "-nostdin", "-y", "-v", "error"}
+	args = append(args, InputGuard...)
+	args = append(args,
 		"-ss", strconv.FormatFloat(at.Seconds(), 'f', 3, 64),
 		"-i", input,
+		"-map", fmt.Sprintf("0:v:%d", probe.VideoStream),
 		"-frames:v", "1",
 		"-vf", stillFilter(probe, w, h, extraFilter),
 		"-q:v", strconv.Itoa(quality),
 		output,
-	}
+	)
 	var stderr strings.Builder
 	cmd := proc.Command(ctx, ffmpeg, args...)
 	cmd.Stderr = &limitedWriter{w: &stderr, remaining: 4 << 10}
 	if err := proc.Run(cmd); err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return context.Cause(ctx)
 		}
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		return ClassifyFailure(err, stderr.String())
 	}
 	return nil
 }

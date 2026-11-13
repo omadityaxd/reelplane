@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -62,7 +61,7 @@ func isNotFound(err error) bool {
 	return errors.As(err, &noKey)
 }
 
-func (s *S3) Download(ctx context.Context, key, dst string) error {
+func (s *S3) Download(ctx context.Context, key, dst string, maxBytes int64) error {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &key})
 	if err != nil {
 		if isNotFound(err) {
@@ -71,11 +70,14 @@ func (s *S3) Download(ctx context.Context, key, dst string) error {
 		return fmt.Errorf("get %s: %w", key, err)
 	}
 	defer out.Body.Close()
+	if maxBytes > 0 && aws.ToInt64(out.ContentLength) > maxBytes {
+		return fmt.Errorf("download %s: %w (%d > %d bytes)", key, ErrTooLarge, aws.ToInt64(out.ContentLength), maxBytes)
+	}
 	file, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", dst, err)
 	}
-	if _, err := io.Copy(file, out.Body); err != nil {
+	if err := copyLimited(file, out.Body, maxBytes); err != nil {
 		_ = file.Close()
 		return fmt.Errorf("download %s: %w", key, err)
 	}
