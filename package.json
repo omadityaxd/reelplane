@@ -34,7 +34,11 @@
     "showcase:reset": "tsx scripts/reset-showcase.ts",
     "phone": "tsx scripts/phone.ts",
     "loadtest": "tsx scripts/loadtest.ts",
-    "bench:transcode": "tsx scripts/bench-transcode.ts"
+    "bench:transcode": "tsx scripts/bench-transcode.ts",
+    "prod:migrate": "tsx --env-file=.env.production scripts/migrate.ts",
+    "prod:init-storage": "tsx --env-file=.env.production scripts/init-storage.ts",
+    "prod:worker": "tsx --env-file=.env.production scripts/run-worker.ts",
+    "prod:seed": "tsx --env-file=.env.production scripts/seed-showcase.ts --production"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

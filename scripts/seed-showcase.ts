@@ -40,8 +40,16 @@ const ROOT = join(import.meta.dirname, "..");
 const SHOWCASE = join(ROOT, "content", "showcase");
 const MANIFEST = join(SHOWCASE, "licenses.json");
 const WEB_ENV = join(ROOT, "apps", "web", ".env.local");
-const DEV_OWNER_ID = "00000000-0000-4000-8000-000000000001";
 const BENCH = process.argv.includes("--bench");
+/**
+ * `--production` (with `.env.production` loaded, see docs/LAUNCH-CHECKLIST.md): allowed origin
+ * is NEXT_PUBLIC_SITE_URL, the projects belong to SEED_OWNER_ID (your Supabase user, so they show
+ * in your dashboard), no local env file is touched, and the publishable key is printed for Vercel.
+ */
+const PRODUCTION = process.argv.includes("--production");
+const OWNER_ID = PRODUCTION
+  ? (process.env.SEED_OWNER_ID ?? "")
+  : "00000000-0000-4000-8000-000000000001";
 const BENCH_COPIES = 5;
 const PROJECT_NAME = BENCH ? "Reelplane bench" : "Reelplane demo";
 const KEY_VAR = BENCH ? "NEXT_PUBLIC_BENCH_PUBLISHABLE_KEY" : "NEXT_PUBLIC_DEMO_PUBLISHABLE_KEY";
@@ -117,13 +125,13 @@ async function demoProject(
   origins: string[],
   env: Map<string, string>,
 ): Promise<string> {
-  const existing = (await listProjectsForUser(deps.pool, DEV_OWNER_ID)).find(
+  const existing = (await listProjectsForUser(deps.pool, OWNER_ID)).find(
     (p) => p.name === PROJECT_NAME,
   );
   if (!existing) {
     const created = await createProject(
       deps.pool,
-      { ownerId: DEV_OWNER_ID, name: PROJECT_NAME, allowedOrigins: origins, isDemo: true },
+      { ownerId: OWNER_ID, name: PROJECT_NAME, allowedOrigins: origins, isDemo: true },
       deps.pepper,
     );
     env.set(KEY_VAR, created.publishableKey.key);
@@ -131,7 +139,7 @@ async function demoProject(
   }
   // These dev projects belong to the seed: replace (not extend) their origins, so a stale
   // address from an earlier run (e.g. a virtual adapter) does not linger.
-  await setAllowedOrigins(deps.pool, DEV_OWNER_ID, existing.id, origins);
+  await setAllowedOrigins(deps.pool, OWNER_ID, existing.id, origins);
   if (!env.get(KEY_VAR)) {
     const key = await createApiKey(
       deps.pool,
@@ -273,15 +281,38 @@ function ensurePepper(webEnv: Map<string, string>): void {
   webEnv.set("API_KEY_PEPPER", pepper);
 }
 
-const lan = process.env.DEMO_LAN_IP ?? lanAddress();
-const origins = [`http://localhost:${PORT}`, ...(lan ? [`http://${lan}:${PORT}`] : [])];
-const env = readEnvFile(WEB_ENV);
-ensurePepper(env);
-if (lan) {
-  // The phone must reach media via the laptop's LAN address, not "localhost".
-  env.set("STORAGE_PUBLIC_BASE_URL", `http://${lan}:9000/reelplane`);
-  env.set("NEXT_DEV_ALLOWED_HOSTS", lan);
+function productionSettings(): { origins: string[]; env: Map<string, string> } {
+  const site = process.env.NEXT_PUBLIC_SITE_URL ?? "";
+  const missing = [
+    !/^https:\/\//.test(site) && "NEXT_PUBLIC_SITE_URL (https://…)",
+    !/^[0-9a-f-]{36}$/i.test(OWNER_ID) && "SEED_OWNER_ID (your Supabase user id)",
+    !process.env.API_KEY_PEPPER && "API_KEY_PEPPER",
+    !process.env.DATABASE_URL && "DATABASE_URL",
+    process.env.STORAGE_PROVIDER !== "supabase" && "STORAGE_PROVIDER=supabase",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(`--production needs these set in .env.production: ${missing.join(", ")}`);
+  }
+  // An empty map: nothing is read from or written to the local apps/web/.env.local.
+  return { origins: [new URL(site).origin], env: new Map() };
 }
+
+function localSettings(): { origins: string[]; env: Map<string, string> } {
+  const lan = process.env.DEMO_LAN_IP ?? lanAddress();
+  const env = readEnvFile(WEB_ENV);
+  ensurePepper(env);
+  if (lan) {
+    // The phone must reach media via the laptop's LAN address, not "localhost".
+    env.set("STORAGE_PUBLIC_BASE_URL", `http://${lan}:9000/reelplane`);
+    env.set("NEXT_DEV_ALLOWED_HOSTS", lan);
+  }
+  return {
+    origins: [`http://localhost:${PORT}`, ...(lan ? [`http://${lan}:${PORT}`] : [])],
+    env,
+  };
+}
+
+const { origins, env } = PRODUCTION ? productionSettings() : localSettings();
 const pool = createPool(resolveDatabaseUrl(), { max: 2, applicationName: "reelplane-showcase" });
 const deps: AppDeps = {
   pool,
@@ -292,7 +323,23 @@ const deps: AppDeps = {
 
 try {
   const projectId = await demoProject(deps, origins, env);
-  writeEnvFile(WEB_ENV, env);
+  if (PRODUCTION) {
+    const key = env.get(KEY_VAR);
+    process.stdout.write(
+      key
+        ? `
+Set this in Vercel (Production), then redeploy:
+${KEY_VAR}=${key}
+
+`
+        : `
+The project already has a publishable key (keys are shown once). Keep using it, or create a new one in the dashboard.
+
+`,
+    );
+  } else {
+    writeEnvFile(WEB_ENV, env);
+  }
   process.stdout.write(`demo project ${projectId}; allowed origins: ${origins.join(", ")}\n`);
   // The `latest` feed shows the most recently published first. So the licensed clips are
   // published first (and fully), then the phone videos: phone videos lead the feed, the

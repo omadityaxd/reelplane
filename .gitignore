@@ -10,6 +10,7 @@ coverage/
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # local data and build artefacts
 .data/
