@@ -89,7 +89,7 @@ export function parseFeed(raw: string): FeedSpec {
   throw new ApiError("not_found", "Unknown feed. Use latest, trending or creator:<creatorId>.");
 }
 
-const feedQuerySchema = z.strictObject({
+export const feedQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(30).default(10),
   cursor: z.string().max(500).optional(),
   explain: z.enum(["1", "true"]).optional(),
@@ -167,7 +167,7 @@ const eventSchema = z.strictObject({
     .refine((value) => Object.keys(value).length <= 20, "at most 20 data keys")
     .optional(),
 });
-const eventsSchema = z.strictObject({ events: z.array(eventSchema).min(1).max(100) });
+export const eventsSchema = z.strictObject({ events: z.array(eventSchema).min(1).max(100) });
 
 /**
  * POST /v1/playback-events — batched quality metrics from the SDK. Also accepts the publishable
@@ -182,7 +182,7 @@ export const ingestPlaybackEvents = endpoint(
   },
 );
 
-const likeSchema = z.strictObject({ viewerId: z.string().trim().min(1).max(200) });
+export const likeSchema = z.strictObject({ viewerId: z.string().trim().min(1).max(200) });
 
 function likeEndpoint(liked: boolean) {
   return endpoint(
@@ -203,7 +203,7 @@ function likeEndpoint(liked: boolean) {
 export const likeVideo = likeEndpoint(true);
 export const unlikeVideo = likeEndpoint(false);
 
-const reportSchema = z.strictObject({ reason: z.enum(REPORT_REASONS) });
+export const reportSchema = z.strictObject({ reason: z.enum(REPORT_REASONS) });
 
 /**
  * POST /v1/videos/:id/reports — a viewer reports a video (the feed's report button). Each

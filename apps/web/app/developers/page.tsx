@@ -77,6 +77,11 @@ export default function DevelopersPage() {
         <Code>{upload}</Code>
         <h2>4. Hear when a video is ready</h2>
         <Code>{webhook}</Code>
+        <p>
+          Every endpoint, with its auth, limits and schemas: the{" "}
+          <Link href="/developers/api">API reference</Link> (or{" "}
+          <a href="/openapi.json">openapi.json</a>).
+        </p>
       </main>
     </div>
   );

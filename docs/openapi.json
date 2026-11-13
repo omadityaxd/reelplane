@@ -1,0 +1,2077 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Reelplane API",
+    "version": "1.0.0",
+    "description": "Upload short videos, have them transcoded to an HLS ladder, and serve them as feeds. Every response is JSON. Errors look like `{ \"error\": { \"code\", \"message\", \"details\"? } }`. Every endpoint is rate limited (`x-rate-limit` below, with `RateLimit-*` headers on each response), and each client address also gets 600 requests per 60 s across the whole API before its credentials are checked.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "This deployment"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Feeds",
+      "description": "What the player calls, from the browser."
+    },
+    {
+      "name": "Uploads",
+      "description": "Direct, resumable uploads to storage."
+    },
+    {
+      "name": "Videos",
+      "description": "Managing a project's videos (secret key)."
+    },
+    {
+      "name": "Project",
+      "description": "The API key's project."
+    },
+    {
+      "name": "Health",
+      "description": "Monitoring."
+    }
+  ],
+  "paths": {
+    "/v1/feeds/{feed}": {
+      "get": {
+        "operationId": "getFeed",
+        "tags": ["Feeds"],
+        "summary": "Get a page of a feed",
+        "description": "Ready videos for the player, with HLS URLs. Call it from the browser with a publishable key (from one of the project's allowed origins). Pages are cached for 10 seconds per server.",
+        "parameters": [
+          {
+            "name": "feed",
+            "in": "path",
+            "required": true,
+            "description": "`latest`, `trending`, or `creator:<creatorId>`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "explain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["1", "true"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the feed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "publishableKey": []
+          },
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 120,
+          "windowSeconds": 60,
+          "per": "client address"
+        }
+      }
+    },
+    "/v1/playback-events": {
+      "post": {
+        "operationId": "sendPlaybackEvents",
+        "tags": ["Feeds"],
+        "summary": "Send playback metrics",
+        "description": "Batched quality metrics from the player SDK: time to first frame, rebuffers, watch time, quality switches and errors. The SDK sends these for you. The key may also go in `?key=`, because a request sent as the page unloads cannot set headers.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "events": {
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "videoId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        },
+                        "sessionId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": ["ttff", "rebuffer", "watch", "quality_switch", "error"]
+                        },
+                        "valueMs": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 3600000
+                        },
+                        "data": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "maxLength": 40
+                          },
+                          "additionalProperties": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "required": ["videoId", "sessionId", "type"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["events"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackEventsAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "publishableKey": []
+          },
+          {
+            "publishableKeyQuery": []
+          },
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 120,
+          "windowSeconds": 60,
+          "per": "client address"
+        }
+      }
+    },
+    "/v1/videos/{id}/likes": {
+      "post": {
+        "operationId": "likeVideo",
+        "tags": ["Feeds"],
+        "summary": "Like a video",
+        "description": "Idempotent per video and `viewerId`: liking twice counts once.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "viewerId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": ["viewerId"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new like count.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Like"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "publishableKey": []
+          },
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 60,
+          "windowSeconds": 60,
+          "per": "client address"
+        }
+      },
+      "delete": {
+        "operationId": "unlikeVideo",
+        "tags": ["Feeds"],
+        "summary": "Remove a like",
+        "description": "Idempotent per video and `viewerId`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "viewerId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": ["viewerId"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new like count.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Like"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "publishableKey": []
+          },
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 60,
+          "windowSeconds": 60,
+          "per": "client address"
+        }
+      }
+    },
+    "/v1/videos/{id}/reports": {
+      "post": {
+        "operationId": "reportVideo",
+        "tags": ["Feeds"],
+        "summary": "Report a video",
+        "description": "A viewer reports a video. Each address counts once per video (stored only as an HMAC). Three reports hide the video from feeds until it is reviewed in the dashboard.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "enum": ["spam", "nudity", "violence", "copyright", "other"]
+                  }
+                },
+                "required": ["reason"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "publishableKey": []
+          },
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 10,
+          "windowSeconds": 60,
+          "per": "client address"
+        }
+      }
+    },
+    "/v1/uploads": {
+      "post": {
+        "operationId": "createUpload",
+        "tags": ["Uploads"],
+        "summary": "Start an upload",
+        "description": "Creates the video and a multipart upload in storage, and returns an upload token for the browser. Call it from your server. The video bytes never pass through the API: the browser sends them straight to storage (`@reelplane/sdk-core`'s `uploadVideo` does all of it).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Makes retries safe: the same key and body within 24 hours replay the first response (marked `Idempotent-Replayed: true`); the same key with another body is a 409.",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "contentType": {
+                    "type": "string",
+                    "enum": ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"]
+                  },
+                  "sizeBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "durationMs": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "filename": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "creatorId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_]{1,40}$"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  }
+                },
+                "required": ["contentType", "sizeBytes"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The upload session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 30,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      }
+    },
+    "/v1/uploads/{id}/parts": {
+      "post": {
+        "operationId": "signUploadParts",
+        "tags": ["Uploads"],
+        "summary": "Get upload URLs for parts",
+        "description": "Presigned URLs for the parts still to upload, each bound to its exact size, plus the parts storage already has. Call it again to resume after a dropped connection.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "partNumbers": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Part URLs and received parts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedParts"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "uploadToken": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 120,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      }
+    },
+    "/v1/uploads/{id}/complete": {
+      "post": {
+        "operationId": "completeUpload",
+        "tags": ["Uploads"],
+        "summary": "Finish an upload",
+        "description": "Assembles the parts, checks the file really is a video (magic bytes), and queues it for transcoding. Calling it again returns the already-queued video. A file that was rejected answers 409.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parts": {
+                    "maxItems": 10000,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "partNumber": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "etag": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        }
+                      },
+                      "required": ["partNumber", "etag"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The queued video.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "uploadToken": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 30,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      }
+    },
+    "/v1/uploads/{id}": {
+      "delete": {
+        "operationId": "abortUpload",
+        "tags": ["Uploads"],
+        "summary": "Cancel an upload",
+        "description": "Cancels an upload in progress and frees its stored parts.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cancelled video.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "uploadToken": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 30,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      }
+    },
+    "/v1/videos": {
+      "get": {
+        "operationId": "listVideos",
+        "tags": ["Videos"],
+        "summary": "List videos",
+        "description": "The project's videos, newest first, at every stage. Deleted videos are left out.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["uploading", "queued", "processing", "ready", "failed"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of videos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is invalid; `details` lists each problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 300,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      }
+    },
+    "/v1/videos/{id}": {
+      "get": {
+        "operationId": "getVideo",
+        "tags": ["Videos"],
+        "summary": "Get a video",
+        "description": "One video with its status and, once it is ready, its playback URLs.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The video.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 300,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      },
+      "delete": {
+        "operationId": "deleteVideo",
+        "tags": ["Videos"],
+        "summary": "Delete a video",
+        "description": "Deletes a video at any stage: it leaves feeds at once, a queued job is cancelled, `video.deleted` is sent to webhooks, and the worker removes its files shortly after. Deleting it again answers 404.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The video's id (a UUID).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedVideo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or in another project).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 120,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      }
+    },
+    "/v1/project": {
+      "get": {
+        "operationId": "getProject",
+        "tags": ["Project"],
+        "summary": "Get the key's project",
+        "description": "The project the API key belongs to. With a secret key it also lists the allowed browser origins.",
+        "responses": {
+          "200": {
+            "description": "The project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This kind of credential may not call this, or the origin is not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "secretKey": []
+          },
+          {
+            "publishableKey": []
+          }
+        ],
+        "x-rate-limit": {
+          "limit": 60,
+          "windowSeconds": 60,
+          "per": "credential"
+        }
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "getHealth",
+        "tags": ["Health"],
+        "summary": "Health check",
+        "description": "Liveness and database reachability. No credentials; limited per address.",
+        "responses": {
+          "200": {
+            "description": "Up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; wait for `Retry-After` seconds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "unauthorized",
+                  "forbidden",
+                  "not_found",
+                  "invalid_request",
+                  "conflict",
+                  "rate_limited",
+                  "internal_error"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": ["code", "message"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["error"],
+        "additionalProperties": false
+      },
+      "Video": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["uploading", "queued", "processing", "ready", "failed", "deleted"]
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "creatorId": {
+            "type": ["string", "null"]
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failureReason": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "readyAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "playback": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "hlsUrl": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Master HLS playlist."
+                  },
+                  "posterUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "placeholder": {
+                    "description": "A tiny blurred JPEG as a data: URI.",
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["hlsUrl", "posterUrl", "placeholder"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set once the video is ready."
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "title",
+          "creatorId",
+          "durationMs",
+          "width",
+          "height",
+          "failureReason",
+          "createdAt",
+          "readyAt",
+          "playback"
+        ],
+        "additionalProperties": false
+      },
+      "FeedItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "creatorId": {
+            "type": ["string", "null"]
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "likesCount": {
+            "type": "integer"
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "playback": {
+            "type": "object",
+            "properties": {
+              "hlsUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "Master playlist starting at 720p (or the best rung below)."
+              },
+              "hlsLowStartUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "The same renditions, starting at the lowest."
+              },
+              "posterUrl": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "placeholder": {
+                "type": ["string", "null"]
+              },
+              "renditions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "width": {
+                      "type": "integer"
+                    },
+                    "height": {
+                      "type": "integer"
+                    },
+                    "bitrateKbps": {
+                      "type": "integer"
+                    },
+                    "fps": {
+                      "type": ["number", "null"]
+                    }
+                  },
+                  "required": ["name", "width", "height", "bitrateKbps", "fps"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["hlsUrl", "hlsLowStartUrl", "posterUrl", "placeholder", "renditions"],
+            "additionalProperties": false
+          },
+          "score": {
+            "description": "Trending feed with `?explain=1` only.",
+            "type": "object",
+            "properties": {
+              "likes": {
+                "type": "number"
+              },
+              "views": {
+                "type": "number"
+              },
+              "completions": {
+                "type": "number"
+              },
+              "completionRate": {
+                "type": "number"
+              },
+              "ageHours": {
+                "type": "number"
+              },
+              "value": {
+                "type": "number"
+              }
+            },
+            "required": ["likes", "views", "completions", "completionRate", "ageHours", "value"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "creatorId",
+          "durationMs",
+          "width",
+          "height",
+          "likesCount",
+          "metadata",
+          "createdAt",
+          "playback"
+        ],
+        "additionalProperties": false
+      },
+      "FeedPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedItem"
+            }
+          },
+          "nextCursor": {
+            "description": "Pass as `cursor` for the next page; null at the end.",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["data", "nextCursor"],
+        "additionalProperties": false
+      },
+      "PlaybackEventsAccepted": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "accepted": {
+                "type": "integer"
+              },
+              "completionThreshold": {
+                "type": "number"
+              }
+            },
+            "required": ["accepted", "completionThreshold"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "Like": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "videoId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "liked": {
+                "type": "boolean"
+              },
+              "likesCount": {
+                "type": "integer"
+              }
+            },
+            "required": ["videoId", "liked", "likesCount"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "Report": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "videoId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reported": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": ["videoId", "reported"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "UploadSession": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "video": {
+                "$ref": "#/components/schemas/Video"
+              },
+              "upload": {
+                "type": "object",
+                "properties": {
+                  "videoId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "token": {
+                    "type": "string",
+                    "description": "Upload token for the browser: works only for this video."
+                  },
+                  "partSize": {
+                    "type": "integer"
+                  },
+                  "partCount": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": ["videoId", "token", "partSize", "partCount", "expiresAt"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["video", "upload"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "SignedParts": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "partSize": {
+                "type": "integer"
+              },
+              "partCount": {
+                "type": "integer"
+              },
+              "receivedParts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "partNumber": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "etag": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["partNumber", "size", "etag"],
+                  "additionalProperties": false
+                }
+              },
+              "urls": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "partNumber": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": ["partNumber", "size", "url"],
+                  "additionalProperties": false
+                }
+              },
+              "urlsExpireAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": ["partSize", "partCount", "receivedParts", "urls", "urlsExpireAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "VideoResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Video"
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "VideoList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Video"
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["data", "nextCursor"],
+        "additionalProperties": false
+      },
+      "DeletedVideo": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "type": "string",
+                "const": "deleted"
+              },
+              "previousStatus": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "status", "previousStatus"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "allowedOrigins": {
+                "description": "Secret key only.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["id", "name"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "degraded", "rate_limited"]
+          },
+          "database": {
+            "type": "string",
+            "const": "unreachable"
+          }
+        },
+        "required": ["status"],
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "publishableKeyQuery": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "key",
+        "description": "The publishable key as `?key=`, for requests sent as a page unloads."
+      },
+      "secretKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A secret key (`rp_sk_…`). Server-side only: it can manage every video."
+      },
+      "publishableKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A publishable key (`rp_pk_…`). Safe in a browser, and only accepted from the project's allowed origins."
+      },
+      "uploadToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The upload token from `POST /v1/uploads`. Works only for that one video."
+      }
+    }
+  }
+}

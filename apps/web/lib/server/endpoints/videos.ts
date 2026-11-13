@@ -16,7 +16,7 @@ const LISTABLE_STATUSES = [
   "failed",
 ] as const satisfies readonly VideoStatus[];
 
-const listQuerySchema = z.strictObject({
+export const listQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(200).optional(),
   status: z.enum(LISTABLE_STATUSES).optional(),

@@ -134,7 +134,10 @@ export function Reels() {
 }
 ```
 
-The `/developers` page of the demo has copy-paste code for uploads and webhooks.
+The `/developers` page of the demo has copy-paste code for uploads and webhooks. The REST API
+is described in [`docs/openapi.json`](docs/openapi.json) (OpenAPI 3.1, also served at
+`/openapi.json`), with a readable reference at `/developers/api`. Both are generated from the
+routes, and a test fails if they drift from the code.
 
 ## Dashboard and webhooks
 
@@ -173,6 +176,7 @@ pnpm --filter @reelplane/web dev # http://localhost:3000; REELPLANE_TEST_AUTH=1 
 pnpm --filter @reelplane/web e2e # Playwright against a running app
 pnpm loadtest                    # k6: feed + upload sessions (K6=<path to k6>)
 pnpm bench:transcode             # transcode the showcase clips, report speed per job
+pnpm --filter @reelplane/web openapi # regenerate docs/openapi.json after an API change
 ```
 
 **On a phone:** `pnpm phone` serves the app on your Wi-Fi and prints the URL. `?debug=1`
