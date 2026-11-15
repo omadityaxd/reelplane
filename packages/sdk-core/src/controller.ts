@@ -106,7 +106,6 @@ export class FeedController {
   );
   private readonly sources = new Map<string, ItemSource>();
   private listeners = new Set<Listener>();
-  private hiddenPause = false;
   private destroyed = false;
   /** Bumped on every setActive: identifies which activation a play() belongs to. */
   private activation = 0;
@@ -363,6 +362,11 @@ export class FeedController {
       activatedAt,
     );
     this.applyMute(video);
+    await this.startPlayback(video);
+  }
+
+  /** play(), falling back to muted, then to "tap to play" if even that is refused. */
+  private async startPlayback(video: HTMLVideoElement): Promise<void> {
     try {
       await video.play();
       this.update({ needsGesture: false });
@@ -374,12 +378,14 @@ export class FeedController {
         this.update({ muted: true });
         try {
           await video.play();
+          this.update({ needsGesture: false });
           return;
         } catch {
           // fall through: even muted playback was refused
         }
       }
-      this.update({ needsGesture: true });
+      // Hidden pages may refuse play(); onVisibility retries on return, so no tap is needed.
+      if (typeof document === "undefined" || !document.hidden) this.update({ needsGesture: true });
     }
   }
 
@@ -434,15 +440,18 @@ export class FeedController {
     this.tracker = null;
   };
 
+  /**
+   * Hidden: pause. Visible again: the active video plays unless the viewer paused it. That
+   * includes a video swiped to just before the page was hidden, whose play() ran (and iOS
+   * refused or held it) while hidden: it used to wait for a tap, fully buffered.
+   */
   private readonly onVisibility = () => {
     const video = this.activeVideo();
     if (!video) return;
     if (document.visibilityState === "hidden") {
-      this.hiddenPause = !video.paused;
       video.pause();
-    } else if (this.hiddenPause && !this.state.paused) {
-      this.hiddenPause = false;
-      void video.play().catch(() => undefined);
+    } else if (!this.state.paused && video.paused) {
+      void this.startPlayback(video);
     }
   };
 

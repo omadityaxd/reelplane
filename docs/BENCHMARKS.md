@@ -88,6 +88,35 @@ whether the warmer had played it). When a run finishes it shows the 3 slowest sw
 The next iPhone run will say which cause it is. No change to the player until then: an
 unmeasured "fix" could just as well make it worse.
 
+**Second iPhone run: Chrome on iOS** (WebKit underneath, so native HLS like Safari), same Wi-Fi,
+`pnpm phone`, `/bench?preload=1`, measured 2026-11-15 by the project author:
+
+| Swipes            | p50       | p95          | Slowest three (swipe: ms, state of the target at the swipe)                      |
+| ----------------- | --------- | ------------ | -------------------------------------------------------------------------------- |
+| 25/25, 0 timeouts | **99 ms** | **14215 ms** | #2: 15686 · #9: 14215 · #14: 11759; all `readyState` 4, ~11.9 s buffered, warmed |
+
+**The p95 is not a player measurement, and it should not be quoted as one.** With 25 swipes, p95
+is the second-slowest swipe, so these three outliers alone set it. All three targets were fully
+loaded at the swipe (`readyState` 4, the whole 12 s clip buffered, already warmed), so the
+network was not the cause. A 12–16 s wait with everything loaded means the page was not playing
+at all. The screenshot of the run shows iOS's "◀ Teams" back link, so the run was interrupted by
+an app switch at least once. That run's `/bench` could not record visibility, so the cause of
+each outlier can't be proven from it.
+
+**What the outliers led to:**
+- **A real bug, fixed:** a swipe right before the page was hidden started `play()` while hidden.
+  If the browser refused it, nothing resumed the video when the page came back: it waited for
+  a tap, fully buffered, exactly as in these three swipes. The visibility handler now resumes the
+  active video on return unless the viewer paused it (`controller.test.ts`, "starts the
+  swiped-to video when the page comes back").
+- **`/bench` now records why a swipe was slow:** whether the page was hidden at the swipe and for
+  how long before the frame, when the player called `play()` and how it settled (resolved,
+  rejected and why, still pending), and whether autoplay was refused. Statistics use visible
+  time only. Hidden or refused swipes are flagged (⚑), and a "clean" p50/p95 leaves them out.
+
+A clean re-run on the iPhone, with the fix, is pending. Until then the iPhone numbers to quote
+are the p50s (69 ms in Safari, 99 ms in Chrome on iOS).
+
 ### What warming and preloading cost
 
 Measured in Chrome over 60 s spent on one video, with N+1 warmed and N+2 preloaded

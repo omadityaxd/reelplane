@@ -208,3 +208,82 @@ describe("FeedController sound and warming", () => {
     expect((controller.activeVideo() as unknown as FakeVideo).muted).toBe(true);
   });
 });
+
+describe("FeedController and page visibility", () => {
+  let hidden = false;
+  const page = new EventTarget();
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeVideo.all = [];
+    hidden = false;
+    vi.stubGlobal("navigator", { vendor: "Apple Computer, Inc." });
+    vi.stubGlobal(
+      "document",
+      Object.defineProperties(page, {
+        hidden: { get: () => hidden, configurable: true },
+        visibilityState: { get: () => (hidden ? "hidden" : "visible"), configurable: true },
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function setHidden(value: boolean) {
+    hidden = value;
+    page.dispatchEvent(new Event("visibilitychange"));
+  }
+
+  async function started() {
+    const controller = new FeedController({
+      apiBaseUrl: "https://api.test",
+      publishableKey: "rp_pk_test",
+      feed: "latest",
+      sendMetrics: false,
+      fetch: feedFetch,
+    });
+    const videos = Array.from({ length: controller.slotCount }, () => new FakeVideo());
+    controller.attach(videos as unknown as HTMLVideoElement[]);
+    await controller.start();
+    await vi.advanceTimersByTimeAsync(100);
+    // Like iOS: a hidden page may not start media.
+    for (const video of videos) {
+      const play = video.play.bind(video);
+      video.play = () =>
+        hidden ? Promise.reject(new DOMException("hidden", "NotAllowedError")) : play();
+    }
+    return controller;
+  }
+
+  it("starts the swiped-to video when the page comes back, if it was hidden mid-swipe", async () => {
+    const controller = await started();
+    controller.setActive(1); // the swipe; play() waits for the engine first
+    setHidden(true); // the viewer switches apps before play() runs
+    await vi.advanceTimersByTimeAsync(1_000);
+    const active = controller.activeVideo() as unknown as FakeVideo;
+    expect(active.paused).toBe(true); // refused while hidden
+
+    setHidden(false);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(active.paused).toBe(false);
+    expect(controller.getState().needsGesture).toBe(false);
+  });
+
+  it("pauses while hidden and resumes on return, but not a video the viewer paused", async () => {
+    const controller = await started();
+    const active = controller.activeVideo() as unknown as FakeVideo;
+    setHidden(true);
+    expect(active.paused).toBe(true);
+    setHidden(false);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(active.paused).toBe(false);
+
+    controller.togglePause(); // the viewer pauses
+    setHidden(true);
+    setHidden(false);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(active.paused).toBe(true);
+  });
+});

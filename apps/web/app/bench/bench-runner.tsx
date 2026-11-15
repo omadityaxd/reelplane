@@ -13,11 +13,118 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  */
 interface Sample {
   index: number;
+  /** Swipe → first painted frame, wall clock. */
   swipeToPlayMs: number | null;
+  /** The same minus the time the page was hidden: what the statistics use. */
+  visibleMs: number | null;
   ttffMs: number | null;
   preloaded: boolean | null;
   /** The target video at the moment of the swipe: why a slow swipe was slow. */
   atSwipe: TargetState | null;
+  /** What happened between the swipe and the frame. */
+  why: SwipeDiagnostics | null;
+  /** Hidden at some point, or autoplay refused: not a clean measurement of the player. */
+  flagged: boolean;
+}
+
+interface SwipeDiagnostics {
+  /** The page was hidden (app switched, screen locked) at the moment of the swipe. */
+  hiddenAtSwipe: boolean;
+  /** Time the page spent hidden between the swipe and the first frame. */
+  hiddenMs: number;
+  /** Swipe → the player's first play() on the target; null: it never called play(). */
+  playCalledMs: number | null;
+  /** Swipe → that play() settling; null: still pending when the frame came (or never called). */
+  playSettledMs: number | null;
+  /** "resolved", "pending", "not called", or "rejected: <error name>". */
+  playOutcome: string;
+  /** play() was refused with NotAllowedError (Low Power Mode, a hidden page, no gesture). */
+  autoplayBlocked: boolean;
+}
+
+/**
+ * Bench-only instrumentation: every HTMLMediaElement.play() call (on which feed index, when, and
+ * how it settled) and every stretch of time the page spent hidden.
+ */
+interface PlayCall {
+  index: string | undefined;
+  at: number;
+  settledAt: number | null;
+  outcome: string;
+}
+const playCalls: PlayCall[] = [];
+const hiddenStretches: [number, number][] = [];
+let hiddenSince: number | null = null;
+
+function instrument(): () => void {
+  const original = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function play(this: HTMLMediaElement) {
+    const call: PlayCall = {
+      index: this.dataset.index,
+      at: performance.now(),
+      settledAt: null,
+      outcome: "pending",
+    };
+    playCalls.push(call);
+    const promise = original.call(this);
+    promise.then(
+      () => {
+        call.settledAt = performance.now();
+        call.outcome = "resolved";
+      },
+      (error: unknown) => {
+        call.settledAt = performance.now();
+        call.outcome = `rejected: ${error instanceof DOMException ? error.name : "error"}`;
+      },
+    );
+    return promise;
+  };
+  const onVisibility = () => {
+    const now = performance.now();
+    if (document.hidden) hiddenSince ??= now;
+    else if (hiddenSince !== null) {
+      hiddenStretches.push([hiddenSince, now]);
+      hiddenSince = null;
+    }
+  };
+  if (document.hidden) hiddenSince = performance.now();
+  document.addEventListener("visibilitychange", onVisibility);
+  return () => {
+    HTMLMediaElement.prototype.play = original;
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+}
+
+function hiddenBetween(start: number, end: number): number {
+  const stretches: [number, number][] =
+    hiddenSince === null ? hiddenStretches : [...hiddenStretches, [hiddenSince, end]];
+  return stretches.reduce(
+    (total, [from, to]) => total + Math.max(0, Math.min(to, end) - Math.max(from, start)),
+    0,
+  );
+}
+
+function diagnose(
+  index: number,
+  swipedAt: number,
+  end: number,
+  hiddenAtSwipe: boolean,
+): SwipeDiagnostics {
+  const calls = playCalls.filter((c) => c.index === String(index) && c.at >= swipedAt);
+  const call = calls[0];
+  const settled = call?.settledAt != null && call.settledAt <= end ? call.settledAt : null;
+  return {
+    hiddenAtSwipe,
+    hiddenMs: Math.round(hiddenBetween(swipedAt, end)),
+    playCalledMs: call ? Math.round(call.at - swipedAt) : null,
+    playSettledMs: settled === null ? null : Math.round(settled - swipedAt),
+    playOutcome: call ? (settled === null ? "pending" : call.outcome) : "not called",
+    autoplayBlocked: calls.some((c) => c.outcome === "rejected: NotAllowedError"),
+  };
+}
+
+function isFlagged(why: SwipeDiagnostics): boolean {
+  return why.hiddenAtSwipe || why.hiddenMs > 0 || why.autoplayBlocked;
 }
 
 interface TargetState {
@@ -52,9 +159,14 @@ export interface BenchResult {
   done: boolean;
   swipes: number;
   samples: Sample[];
+  /** Over visible time (hidden time subtracted), every completed swipe. */
   p50: number | null;
   p95: number | null;
   mean: number | null;
+  /** Swipes that were hidden at some point or had autoplay refused. */
+  flagged: number;
+  /** p50/p95 over the swipes that were not flagged. */
+  clean: { p50: number | null; p95: number | null; n: number };
   timeouts: number;
   /** First video: activation → first frame (the SDK's TTFF metric). */
   initialTtffMs: number | null;
@@ -89,10 +201,13 @@ function summarise(
   done: boolean,
   initial: InitialTiming = { ttffMs: null, pageLoadMs: null },
 ): BenchResult {
-  const values = samples
-    .map((s) => s.swipeToPlayMs)
-    .filter((v): v is number => v !== null)
-    .sort((a, b) => a - b);
+  const visible = (list: Sample[]) =>
+    list
+      .map((s) => s.visibleMs)
+      .filter((v): v is number => v !== null)
+      .sort((a, b) => a - b);
+  const values = visible(samples);
+  const clean = visible(samples.filter((s) => !s.flagged));
   return {
     mode,
     done,
@@ -101,6 +216,8 @@ function summarise(
     p50: percentile(values, 50),
     p95: percentile(values, 95),
     mean: values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null,
+    flagged: samples.filter((s) => s.flagged).length,
+    clean: { p50: percentile(clean, 50), p95: percentile(clean, 95), n: clean.length },
     timeouts: samples.filter((s) => s.swipeToPlayMs === null).length,
     initialTtffMs: initial.ttffMs,
     pageLoadToFirstFrameMs: initial.pageLoadMs,
@@ -121,7 +238,12 @@ function readConfig() {
 
 export function BenchRunner({ publishableKey }: { publishableKey: string }) {
   const [config, setConfig] = useState<ReturnType<typeof readConfig> | null>(null);
-  useEffect(() => setConfig(readConfig()), []);
+  useEffect(() => {
+    // Before the feed mounts, so the player's first play() is already observed.
+    const restore = instrument();
+    setConfig(readConfig());
+    return restore;
+  }, []);
   if (!config) return null;
   return <Bench publishableKey={publishableKey} config={config} />;
 }
@@ -143,6 +265,7 @@ function Bench({
     swipedAt: number;
     timer: number;
     atSwipe: TargetState | null;
+    hiddenAtSwipe: boolean;
   } | null>(null);
   const activeIndex = useRef(0);
   const finished = useRef(false);
@@ -177,9 +300,22 @@ function Bench({
     const timer = window.setTimeout(() => {
       if (pending.current?.index !== index) return;
       pending.current = null;
-      if (!record({ index, swipeToPlayMs: null, ttffMs: null, preloaded: null, atSwipe })) swipe();
+      const why = diagnose(index, swipedAt, performance.now(), hiddenAtSwipe);
+      const timedOut: Sample = {
+        index,
+        swipeToPlayMs: null,
+        visibleMs: null,
+        ttffMs: null,
+        preloaded: null,
+        atSwipe,
+        why,
+        flagged: isFlagged(why),
+      };
+      if (!record(timedOut)) swipe();
     }, TIMEOUT_MS);
-    pending.current = { index, swipedAt: performance.now(), timer, atSwipe };
+    const swipedAt = performance.now();
+    const hiddenAtSwipe = document.hidden;
+    pending.current = { index, swipedAt, timer, atSwipe, hiddenAtSwipe };
     scroller.scrollBy({ top: scroller.clientHeight, behavior: "instant" });
   }, [record]);
 
@@ -196,12 +332,17 @@ function Bench({
       if (metric.data?.trigger === "swipe" && current) {
         window.clearTimeout(current.timer);
         pending.current = null;
+        const why = diagnose(current.index, current.swipedAt, paintedAt, current.hiddenAtSwipe);
+        const swipeToPlayMs = Math.round(paintedAt - current.swipedAt);
         const done = record({
           index: current.index,
-          swipeToPlayMs: Math.round(paintedAt - current.swipedAt),
+          swipeToPlayMs,
+          visibleMs: Math.max(0, swipeToPlayMs - why.hiddenMs),
           ttffMs: metric.valueMs ?? null,
           preloaded: metric.data?.preloaded === true,
           atSwipe: current.atSwipe,
+          why,
+          flagged: isFlagged(why),
         });
         if (done) return;
       }
@@ -244,8 +385,15 @@ function Bench({
         }}
       >
         {mode}: {result.samples.length}/{config.swipes} swipes · p50 {result.p50 ?? "–"} ms · p95{" "}
-        {result.p95 ?? "–"} ms · timeouts {result.timeouts}
+        {result.p95 ?? "–"} ms (visible time) · timeouts {result.timeouts} · flagged{" "}
+        {result.flagged}
         {result.done ? " · DONE" : ""}
+        {result.done && result.flagged > 0 && (
+          <div>
+            clean ({result.clean.n} unflagged): p50 {result.clean.p50 ?? "–"} ms · p95{" "}
+            {result.clean.p95 ?? "–"} ms
+          </div>
+        )}
         {result.done && <SlowestSwipes samples={result.samples} />}
       </output>
     </div>
@@ -261,7 +409,13 @@ function SlowestSwipes({ samples }: { samples: Sample[] }) {
     <>
       {slowest.map((s) => (
         <div key={s.index}>
-          swipe {s.index}: {s.swipeToPlayMs ?? "timeout"} ms · ready {s.atSwipe?.readyState ?? "–"}{" "}
+          {s.flagged ? "⚑ " : ""}swipe {s.index}: {s.swipeToPlayMs ?? "timeout"} ms
+          {s.why && s.why.hiddenMs > 0 ? ` (hidden ${s.why.hiddenMs} ms)` : ""} · play(){" "}
+          {s.why?.playOutcome ?? "–"}
+          {s.why?.playCalledMs != null ? ` called +${s.why.playCalledMs}` : ""}
+          {s.why?.playSettledMs != null ? ` settled +${s.why.playSettledMs} ms` : ""}
+          {s.why?.autoplayBlocked ? " · autoplay blocked" : ""}
+          {s.why?.hiddenAtSwipe ? " · hidden at swipe" : ""} · ready {s.atSwipe?.readyState ?? "–"}{" "}
           · buffered {s.atSwipe?.bufferedAheadS ?? "–"} s · warmed{" "}
           {s.atSwipe ? (s.atSwipe.warmed ? "yes" : "no") : "–"}
         </div>
