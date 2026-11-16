@@ -183,7 +183,9 @@ describe("real responses match the documented schemas", () => {
     await check("getProject", "/v1/project", browser);
 
     // Feeds, with a ready video (as the worker leaves one).
-    const ready = await readyVideo(pool, project.id, { likes: 2, views: 5 });
+    // An hour old: trending only shows videos ready before "now" on the API's clock, and the
+    // database clock (which stamps ready_at) can run ahead of it (measured: ~0.1 s in Docker).
+    const ready = await readyVideo(pool, project.id, { likes: 2, views: 5, hoursAgo: 1 });
     const page = (await check("getFeed", "/v1/feeds/trending?explain=1", {
       ...browser,
       method: "GET",

@@ -12,7 +12,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  * media URLs so neither mode benefits from the HTTP cache of an earlier run.
  */
 interface Sample {
+  /** 1, 2, 3…: the swipe attempt. */
+  attempt: number;
+  /** The feed index swiped to. A timed-out swipe is retried to the same index. */
   index: number;
+  /** Same target as the attempt before (that one timed out). */
+  retry: boolean;
   /** Swipe → first painted frame, wall clock. */
   swipeToPlayMs: number | null;
   /** The same minus the time the page was hidden: what the statistics use. */
@@ -110,16 +115,25 @@ function diagnose(
   end: number,
   hiddenAtSwipe: boolean,
 ): SwipeDiagnostics {
-  const calls = playCalls.filter((c) => c.index === String(index) && c.at >= swipedAt);
-  const call = calls[0];
+  const forTarget = playCalls.filter((c) => c.index === String(index));
+  const calls = forTarget.filter((c) => c.at >= swipedAt);
+  // No new play() can mean one from before the swipe was still in flight (iOS holds play()
+  // while the page is suspended, then lets it through on return): report that one.
+  const earlier = forTarget
+    .filter((c) => c.at < swipedAt && (c.settledAt === null || c.settledAt > swipedAt))
+    .at(-1);
+  const call = calls[0] ?? earlier;
   const settled = call?.settledAt != null && call.settledAt <= end ? call.settledAt : null;
+  const outcome = !call ? "not called" : settled === null ? "pending" : call.outcome;
   return {
     hiddenAtSwipe,
     hiddenMs: Math.round(hiddenBetween(swipedAt, end)),
     playCalledMs: call ? Math.round(call.at - swipedAt) : null,
     playSettledMs: settled === null ? null : Math.round(settled - swipedAt),
-    playOutcome: call ? (settled === null ? "pending" : call.outcome) : "not called",
-    autoplayBlocked: calls.some((c) => c.outcome === "rejected: NotAllowedError"),
+    playOutcome: call === earlier && call ? `${outcome} (called before the swipe)` : outcome,
+    autoplayBlocked: [...calls, ...(earlier ? [earlier] : [])].some(
+      (c) => c.outcome === "rejected: NotAllowedError",
+    ),
   };
 }
 
@@ -134,6 +148,8 @@ interface TargetState {
   bufferedAheadS: number;
   /** Whether it had played before (i.e. the warmer got to it). */
   warmed: boolean;
+  /** Already playing at the swipe (e.g. a play() from before the swipe went through). */
+  playing: boolean;
 }
 
 /** Snapshot of the pool element serving `index` (the swipe target), if it has one. */
@@ -149,6 +165,7 @@ function targetState(index: number): TargetState | null {
     readyState: video.readyState,
     bufferedAheadS: Math.round(bufferedAheadS * 10) / 10,
     warmed: video.played.length > 0,
+    playing: !video.paused,
   };
 }
 
@@ -281,8 +298,13 @@ function Bench({
   );
 
   const record = useCallback(
-    (sample: Sample) => {
-      samples.current.push(sample);
+    (sample: Omit<Sample, "attempt" | "retry">) => {
+      const previous = samples.current.at(-1);
+      samples.current.push({
+        ...sample,
+        attempt: samples.current.length + 1,
+        retry: previous?.index === sample.index,
+      });
       const done = samples.current.length >= config.swipes;
       publish(done);
       if (done) finished.current = true;
@@ -301,7 +323,7 @@ function Bench({
       if (pending.current?.index !== index) return;
       pending.current = null;
       const why = diagnose(index, swipedAt, performance.now(), hiddenAtSwipe);
-      const timedOut: Sample = {
+      const timedOut: Omit<Sample, "attempt" | "retry"> = {
         index,
         swipeToPlayMs: null,
         visibleMs: null,
@@ -408,15 +430,17 @@ function SlowestSwipes({ samples }: { samples: Sample[] }) {
   return (
     <>
       {slowest.map((s) => (
-        <div key={s.index}>
-          {s.flagged ? "⚑ " : ""}swipe {s.index}: {s.swipeToPlayMs ?? "timeout"} ms
+        <div key={s.attempt}>
+          {s.flagged ? "⚑ " : ""}swipe {s.attempt} → video {s.index}
+          {s.retry ? " (retry)" : ""}: {s.swipeToPlayMs ?? "timeout"} ms
           {s.why && s.why.hiddenMs > 0 ? ` (hidden ${s.why.hiddenMs} ms)` : ""} · play(){" "}
           {s.why?.playOutcome ?? "–"}
           {s.why?.playCalledMs != null ? ` called +${s.why.playCalledMs}` : ""}
           {s.why?.playSettledMs != null ? ` settled +${s.why.playSettledMs} ms` : ""}
           {s.why?.autoplayBlocked ? " · autoplay blocked" : ""}
-          {s.why?.hiddenAtSwipe ? " · hidden at swipe" : ""} · ready {s.atSwipe?.readyState ?? "–"}{" "}
-          · buffered {s.atSwipe?.bufferedAheadS ?? "–"} s · warmed{" "}
+          {s.why?.hiddenAtSwipe ? " · hidden at swipe" : ""}
+          {s.atSwipe?.playing ? " · already playing" : ""} · ready {s.atSwipe?.readyState ?? "–"} ·
+          buffered {s.atSwipe?.bufferedAheadS ?? "–"} s · warmed{" "}
           {s.atSwipe ? (s.atSwipe.warmed ? "yes" : "no") : "–"}
         </div>
       ))}

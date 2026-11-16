@@ -179,7 +179,10 @@ export class FeedController {
       document.addEventListener("visibilitychange", this.onVisibility);
     // Registered before MetricsQueue's own pagehide flush (start() runs after attach()), so the
     // view in progress is ended, and its watch time queued, before the final flush.
-    if (typeof window !== "undefined") window.addEventListener("pagehide", this.onPageHide);
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", this.onPageHide);
+      window.addEventListener("pageshow", this.onReturn);
+    }
   }
 
   /** Loads the first page and starts playing the first video. */
@@ -233,7 +236,10 @@ export class FeedController {
     for (const engine of this.engines) engine.unload();
     if (typeof document !== "undefined")
       document.removeEventListener("visibilitychange", this.onVisibility);
-    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("pagehide", this.onPageHide);
+      window.removeEventListener("pageshow", this.onReturn);
+    }
     this.listeners.clear();
   }
 
@@ -446,13 +452,23 @@ export class FeedController {
    * refused or held it) while hidden: it used to wait for a tap, fully buffered.
    */
   private readonly onVisibility = () => {
-    const video = this.activeVideo();
-    if (!video) return;
     if (document.visibilityState === "hidden") {
-      video.pause();
-    } else if (!this.state.paused && video.paused) {
-      void this.startPlayback(video);
+      this.activeVideo()?.pause();
+      return;
     }
+    this.onReturn();
+  };
+
+  /**
+   * The page is visible again. Called on `visibilitychange` and on `pageshow`, because iOS
+   * suspends a hidden page's process and does not always deliver `visibilitychange` (WebKit bug
+   * 207256). The active video resumes at once, and the next one is warmed again right away.
+   */
+  private readonly onReturn = () => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    const video = this.activeVideo();
+    if (video && !this.state.paused && video.paused) void this.startPlayback(video);
+    this.warmer.rewarm();
   };
 
   private update(patch: Partial<FeedState>): void {

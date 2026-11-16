@@ -114,8 +114,33 @@ each outlier can't be proven from it.
   rejected and why, still pending), and whether autoplay was refused. Statistics use visible
   time only. Hidden or refused swipes are flagged (⚑), and a "clean" p50/p95 leaves them out.
 
-A clean re-run on the iPhone, with the fix, is pending. Until then the iPhone numbers to quote
-are the p50s (69 ms in Safari, 99 ms in Chrome on iOS).
+**Third iPhone run: Chrome on iOS, with the fix and the diagnostics** (same Wi-Fi, `pnpm phone`,
+`/bench?preload=1`, reported 2026-11-16 by the project author). **These are the iPhone numbers to
+quote:**
+
+| Swipes                       | Clean (22 unflagged swipes) | All completed swipes, visible time | Flagged | Timeouts |
+| ---------------------------- | --------------------------- | ---------------------------------- | ------- | -------- |
+| 25 attempts, 24 with a frame | **p50 83 ms · p95 116 ms**  | p50 83 ms · p95 303 ms             | 3       | 1        |
+
+All three flagged swipes had the page hidden at the swipe. They were two events, not three:
+
+- **An app switch (67.7 s).** It caused the run's only timeout. The bench then retried the same
+  video while iOS was still handing the page back (the retry's 19 ms "hidden" is the tail of the
+  same switch). That video's `play()` from before the switch went through on return, 501 ms
+  after the retry. The old display listed both attempts as "swipe 16"; rows are now numbered per
+  attempt, retries are marked, and a `play()` still in flight from before the swipe is reported
+  as such.
+- **A 346 ms blip** with no app switch noticed. `play()` was called the moment the page was
+  back (+340 ms), and the first frame came 303 ms after that, against ~80 ms for a warmed swipe:
+  the video started cold. WebKit is known to deliver `visibilitychange` unreliably on iOS: it
+  suspends a hidden page's process, and the system app switcher and Safari's own tab switcher
+  don't fire it when opened. Notification banners and Control Center are not reported to hide
+  the page. A brief trip into Chrome's own UI or a partial app-switcher swipe fits, but the run
+  can't say which. Since then, when the page comes back (on `visibilitychange` or `pageshow`)
+  the player re-warms the next video at once instead of at the next 4 s warm-up, so the swipe
+  after a hide is not also cold.
+
+Still to do: the same run in Safari, to replace the 2026-11-02 Safari numbers.
 
 ### What warming and preloading cost
 

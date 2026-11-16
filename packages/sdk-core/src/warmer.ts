@@ -88,6 +88,19 @@ export class Warmer {
     this.timer = null;
   }
 
+  /**
+   * Warms the target now instead of at its next interval: after the page was hidden, iOS has
+   * often torn down the decoder, so the next swipe would start cold. A no-op while a warm-up is
+   * already under way (no timer pending).
+   */
+  rewarm(): void {
+    const video = this.video;
+    if (!video || this.timer === null) return;
+    clearTimeout(this.timer);
+    this.timer = null;
+    void this.cycle(video, this.generation);
+  }
+
   private schedule(video: HTMLVideoElement, generation: number): void {
     this.timer = setTimeout(() => void this.cycle(video, generation), REWARM_INTERVAL_MS);
   }

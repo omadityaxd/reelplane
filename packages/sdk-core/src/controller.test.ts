@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FeedController } from "./controller.ts";
+import { Warmer } from "./warmer.ts";
 
 /**
  * A fake <video> that follows iOS Safari's rule: only one AUDIBLE media element plays at a
@@ -212,11 +213,15 @@ describe("FeedController sound and warming", () => {
 describe("FeedController and page visibility", () => {
   let hidden = false;
   const page = new EventTarget();
+  const browserWindow = new EventTarget();
+  /** Destroyed after each test: they listen on the shared page and window. */
+  const controllers: FeedController[] = [];
   beforeEach(() => {
     vi.useFakeTimers();
     FakeVideo.all = [];
     hidden = false;
     vi.stubGlobal("navigator", { vendor: "Apple Computer, Inc." });
+    vi.stubGlobal("window", browserWindow);
     vi.stubGlobal(
       "document",
       Object.defineProperties(page, {
@@ -226,6 +231,7 @@ describe("FeedController and page visibility", () => {
     );
   });
   afterEach(() => {
+    for (const controller of controllers.splice(0)) controller.destroy();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -245,6 +251,7 @@ describe("FeedController and page visibility", () => {
       fetch: feedFetch,
     });
     const videos = Array.from({ length: controller.slotCount }, () => new FakeVideo());
+    controllers.push(controller);
     controller.attach(videos as unknown as HTMLVideoElement[]);
     await controller.start();
     await vi.advanceTimersByTimeAsync(100);
@@ -269,6 +276,27 @@ describe("FeedController and page visibility", () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(active.paused).toBe(false);
     expect(controller.getState().needsGesture).toBe(false);
+  });
+
+  it("resumes on pageshow when iOS never delivered the visibilitychange of the return", async () => {
+    const controller = await started();
+    const active = controller.activeVideo() as unknown as FakeVideo;
+    setHidden(true);
+    expect(active.paused).toBe(true);
+    hidden = false; // back on screen, but no visibilitychange (process was suspended)
+    browserWindow.dispatchEvent(new Event("pageshow"));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(active.paused).toBe(false);
+  });
+
+  it("warms the next video again as soon as the page is back", async () => {
+    const controller = await started();
+    const rewarm = vi.spyOn(Warmer.prototype, "rewarm");
+    setHidden(true);
+    expect(rewarm).not.toHaveBeenCalled();
+    setHidden(false);
+    expect(rewarm).toHaveBeenCalledTimes(1);
+    controller.destroy();
   });
 
   it("pauses while hidden and resumes on return, but not a video the viewer paused", async () => {

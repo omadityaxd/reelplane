@@ -20,7 +20,7 @@ measured and how to reproduce it.
 | What                                 | Result                                                                                                            |
 | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | **Swipe-to-play** (Chrome, Fast 4G)  | **35 ms** p50 with preloading vs 1,081 ms without (**31× faster**); p95 75 vs 1,381 ms                            |
-| Swipe-to-play on a real iPhone       | 69 ms p50 with preloading (local Wi-Fi, laptop as server)                                                         |
+| Swipe-to-play on a real iPhone       | 83 ms p50 · 116 ms p95 with preloading (Chrome on iOS, local Wi-Fi, laptop as server)                             |
 | **Chaos test**                       | 100 jobs, **64 workers killed** mid-job: **100/100 completed exactly once**, 0 duplicates, 0 orphaned files       |
 | **Lighthouse** (demo, mobile)        | **96** performance (was 70), 100 accessibility / best practices / SEO; LCP 2.5 s                                  |
 | **Load test** (k6, one Node process) | 100 feed + 10 upload-session req/s: feed **p95 48 ms**, p99 150 ms, 0 errors; ~120–140 req/s per process          |

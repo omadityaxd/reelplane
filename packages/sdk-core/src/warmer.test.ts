@@ -55,6 +55,35 @@ describe("Warmer", () => {
     warmer.stop();
   });
 
+  it("re-warms at once on request (the page came back), but never twice at the same time", async () => {
+    let finishPlay: () => void = () => undefined;
+    let holdNext = false;
+    const video = fakeVideo(
+      () =>
+        new Promise<void>((resolve) => {
+          if (holdNext) finishPlay = resolve;
+          else resolve();
+        }),
+    );
+    const warmer = new Warmer();
+    warmer.target(video as unknown as HTMLVideoElement);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(video.plays).toBe(1);
+
+    warmer.rewarm(); // well before the 4 s interval
+    await vi.advanceTimersByTimeAsync(200);
+    expect(video.plays).toBe(2);
+
+    holdNext = true;
+    warmer.rewarm(); // starts a warm-up that stays in flight…
+    await vi.advanceTimersByTimeAsync(10);
+    warmer.rewarm(); // …so this one must not start another
+    await vi.advanceTimersByTimeAsync(10);
+    expect(video.plays).toBe(3);
+    finishPlay();
+    warmer.stop();
+  });
+
   it("keeps warming after a refused warm-up play()", async () => {
     let refuse = true;
     const video = fakeVideo(async () => {

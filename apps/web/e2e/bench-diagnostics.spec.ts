@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 interface Sample {
+  attempt: number;
   index: number;
   swipeToPlayMs: number | null;
   visibleMs: number | null;
@@ -46,6 +47,8 @@ test("/bench flags a swipe made while the page was hidden and records play()", a
     () => (window as { __reelplaneBench?: unknown }).__reelplaneBench,
   )) as { samples: Sample[]; flagged: number; clean: { n: number } };
 
+  // One row per attempt, numbered in order (a retried target no longer looks like a duplicate).
+  expect(result.samples.map((s) => s.attempt)).toEqual([1, 2, 3]);
   const [first, second, third] = result.samples;
   expect(second?.flagged).toBe(true);
   expect(second?.why?.hiddenAtSwipe).toBe(true);
