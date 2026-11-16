@@ -143,6 +143,9 @@ func OpenPool(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
+	if err := requireVerifiedTLS(&cfg.ConnConfig.Config, databaseURL); err != nil {
+		return nil, err
+	}
 	cfg.MaxConns = maxConns
 	cfg.ConnConfig.RuntimeParams["application_name"] = "reelplane-worker"
 	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {

@@ -70,6 +70,7 @@ export {
   workerLastSeen,
 } from "./maintenance.ts";
 export {
+  connectionConfig,
   createPool,
   LOCAL_DATABASE_URL,
   type Pool,

@@ -2,6 +2,7 @@
  * `pnpm services`: reports which backing service each component will use (cloud or the
  * local fallback) and whether it is reachable. Nothing here needs an account to pass.
  */
+import { connectionConfig } from "@reelplane/db";
 import { createStorage, loadStorageConfig } from "@reelplane/storage";
 import pg from "pg";
 import { LOCAL_DATABASE_URL, loadRootEnv } from "./load-env.ts";
@@ -26,7 +27,7 @@ function describeError(error: unknown): string {
 async function checkPostgres(): Promise<CheckResult> {
   const url = process.env.DATABASE_URL || LOCAL_DATABASE_URL;
   const target = url === LOCAL_DATABASE_URL ? "local docker postgres" : new URL(url).host;
-  const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: TIMEOUT_MS });
+  const client = new pg.Client({ ...connectionConfig(url), connectionTimeoutMillis: TIMEOUT_MS });
   try {
     await client.connect();
     const result = await client.query<{ version: string }>(

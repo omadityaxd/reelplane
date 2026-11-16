@@ -47,14 +47,19 @@ Then create the schema:
 pnpm prod:migrate
 ```
 
-- [ ] **Check:** it prints `Applied: 0001_init, … 0010_worker_presence`.
+- [ ] **Check:** it prints `Applied: 0001_init, … 0011_claim_counter`.
 - [ ] **Check:** Dashboard → **SQL Editor** →
   `select rolname from pg_roles where rolname like 'reelplane%';` returns `reelplane_api`
   and `reelplane_worker`.
 
-If it fails with a certificate error: the Session pooler string must end with
-`?sslmode=require`. If it still fails, tell me the exact error. Node's `pg` driver and
-Supabase's certificate chain sometimes need a small config change.
+**Encryption needs nothing from you.** Paste the strings as Supabase shows them, without
+`?sslmode=…`. The app and the worker connect to any non-local database only over TLS, and check
+the server's certificate. Supabase signs its certificates with its own CA ("Supabase Root 2021
+CA", the `prod-ca-2021.crt` from Database → SSL Configuration). That CA is public and built into
+the code (`packages/db/src/supabase-ca.ts`, and `supabase-ca.pem` in the worker), so Vercel
+needs no extra file or variable. Any `sslmode` in the URL is ignored, except `sslmode=disable`,
+which turns TLS off. That is only for a database on a private network. If a connection fails
+with a certificate error, tell me the exact error.
 
 ## 3. Storage bucket and S3 keys (Supabase Storage)
 
@@ -151,23 +156,23 @@ flow.
 3. **Framework:** Next.js (detected). Build and install commands: the defaults.
 4. **Environment Variables**, scope **Production** only:
 
-   | Variable                        | Value                                                   |
-   | ------------------------------- | ------------------------------------------------------- |
-   | `DATABASE_URL`                  | the **Transaction pooler** URI (port 6543), from step 2 |
-   | `DATABASE_POOL_MAX`             | `2`                                                     |
-   | `NEXT_PUBLIC_SUPABASE_URL`      | step 1                                                  |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | step 1                                                  |
-   | `STORAGE_PROVIDER`              | `supabase`                                              |
-   | `STORAGE_ENDPOINT`              | step 3                                                  |
-   | `STORAGE_REGION`                | step 3                                                  |
-   | `STORAGE_BUCKET`                | `reelplane`                                             |
-   | `STORAGE_ACCESS_KEY_ID`         | step 3                                                  |
-   | `STORAGE_SECRET_ACCESS_KEY`     | step 3                                                  |
-   | `STORAGE_PUBLIC_BASE_URL`       | step 3                                                  |
-   | `UPLOAD_MAX_BYTES`              | `52428800`                                              |
-   | `API_KEY_PEPPER`                | step 4 (the same value as `.env.production`)            |
-   | `CRON_SECRET`                   | step 4                                                  |
-   | `TRUSTED_PROXY`                 | `vercel`                                                |
+   | Variable                        | Value                                                                                   |
+   | ------------------------------- | --------------------------------------------------------------------------------------- |
+   | `DATABASE_URL`                  | the **Transaction pooler** URI (port 6543), from step 2 (no `sslmode`; TLS is built in) |
+   | `DATABASE_POOL_MAX`             | `2`                                                                                     |
+   | `NEXT_PUBLIC_SUPABASE_URL`      | step 1                                                                                  |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | step 1                                                                                  |
+   | `STORAGE_PROVIDER`              | `supabase`                                                                              |
+   | `STORAGE_ENDPOINT`              | step 3                                                                                  |
+   | `STORAGE_REGION`                | step 3                                                                                  |
+   | `STORAGE_BUCKET`                | `reelplane`                                                                             |
+   | `STORAGE_ACCESS_KEY_ID`         | step 3                                                                                  |
+   | `STORAGE_SECRET_ACCESS_KEY`     | step 3                                                                                  |
+   | `STORAGE_PUBLIC_BASE_URL`       | step 3                                                                                  |
+   | `UPLOAD_MAX_BYTES`              | `52428800`                                                                              |
+   | `API_KEY_PEPPER`                | step 4 (the same value as `.env.production`)                                            |
+   | `CRON_SECRET`                   | step 4                                                                                  |
+   | `TRUSTED_PROXY`                 | `vercel`                                                                                |
 
    Two more are added later: `NEXT_PUBLIC_SITE_URL` (step 8) and
    `NEXT_PUBLIC_DEMO_PUBLISHABLE_KEY` (step 11).
