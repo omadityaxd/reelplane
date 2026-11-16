@@ -63,7 +63,8 @@ periodic re-warm works.
 **Setup:** a real iPhone (iOS, native HLS in WebKit) on home Wi-Fi. The laptop above serves
 everything: `next start`, RustFS and Postgres, started with `pnpm phone`. No throttling and no
 CDN, so these are local-network numbers, not mobile-network ones. Measured 2026-11-02 by the
-project author, on the same bench videos as the Chrome run above.
+project author, on the same bench videos as the Chrome run above. The current numbers are the
+third (Chrome on iOS) and fourth (Safari) runs below.
 
 | Mode                   | Swipes                | Swipe-to-play                                  |
 | ---------------------- | --------------------- | ---------------------------------------------- |
@@ -140,7 +141,23 @@ All three flagged swipes had the page hidden at the swipe. They were two events,
   the player re-warms the next video at once instead of at the next 4 s warm-up, so the swipe
   after a hide is not also cold.
 
-Still to do: the same run in Safari, to replace the 2026-11-02 Safari numbers.
+**Fourth iPhone run: Safari** (same iPhone and Wi-Fi, `pnpm phone`, `/bench?preload=1`, reported
+2026-11-16 by the project author). It replaces the 2026-11-02 Safari run at the top of this
+section, which predates the diagnostics and the visibility fixes:
+
+| Browser                  | Swipes         | p50 (clean) | p95 (clean) | Flagged | Timeouts |
+| ------------------------ | -------------- | ----------- | ----------- | ------- | -------- |
+| Safari                   | 25/25          | **95 ms**   | **133 ms**  | 0       | 0        |
+| Chrome on iOS (3rd run)  | 22 clean of 25 | **83 ms**   | **116 ms**  | 3       | 1        |
+| Safari, 2026-11-02 (old) | 25/25          | 69 ms       | 389 ms      | –       | 0        |
+
+Nothing in the Safari run was flagged, so its p50/p95 are clean as measured. The three slowest
+swipes (149, 133 and 124 ms) all look like the typical one: the player called `play()` 6–7 ms after
+the swipe, it resolved by 13–16 ms, and the target was `readyState` 4, fully buffered (10.9 s) and
+warmed. The other ~110–135 ms is WebKit getting the first new frame to the screen after `play()`
+resolves, which the player does not control. Safari and Chrome on iOS use the same engine; the
+12 ms gap in p50 is within what one 25-swipe run per browser can resolve. The old run's 389 ms p95
+was most likely the same kind of hidden-page outlier the third run found; it could not record why.
 
 ### What warming and preloading cost
 
@@ -426,7 +443,6 @@ address and timed out, so it isn't comparable and isn't in the table.
 These will be filled in by the phases that build them:
 
 - Swipe-to-play without preloading on the iPhone: full 25-swipe run (only 2/25 so far)
-- The cause of the iPhone p95 outliers (from the slowest-swipe readout on `/bench`)
 - Transcode speed on the actual free worker host (Phase 8; the 2-vCPU numbers above are a
   quota-limited container on the laptop's CPU)
 
