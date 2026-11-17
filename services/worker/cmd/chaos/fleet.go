@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/proc"
+	"github.com/omadityaxd/reelplane/services/worker/internal/proc"
 )
 
 func exeSuffix() string {

@@ -31,6 +31,10 @@ measured and how to reproduce it.
 Needs Node 22+, pnpm, Docker, Go 1.27 and FFmpeg. No accounts.
 
 ```bash
+git clone https://github.com/omadityaxd/reelplane.git && cd reelplane
+```
+
+```bash
 pnpm install
 pnpm infra:up && pnpm infra:init    # Postgres + S3-compatible storage in Docker, migrations
 pnpm showcase:clips                 # cut the openly licensed demo clips

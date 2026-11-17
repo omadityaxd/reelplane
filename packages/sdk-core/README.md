@@ -34,4 +34,5 @@ const event = await verifyWebhook({
 ```
 
 hls.js (light build) is loaded on demand for the first playback, and never on Apple devices,
-which play HLS natively. MIT licensed.
+which play HLS natively. MIT licensed. Source, issues and the video backend:
+[github.com/omadityaxd/reelplane](https://github.com/omadityaxd/reelplane).

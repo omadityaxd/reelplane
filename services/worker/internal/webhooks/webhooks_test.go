@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/queue"
-	"github.com/omadityashukla/reelplane/services/worker/internal/testdb"
-	"github.com/omadityashukla/reelplane/services/worker/internal/webhooks"
+	"github.com/omadityaxd/reelplane/services/worker/internal/queue"
+	"github.com/omadityaxd/reelplane/services/worker/internal/testdb"
+	"github.com/omadityaxd/reelplane/services/worker/internal/webhooks"
 )
 
 // The same vector is checked by packages/sdk-core/src/webhooks.test.ts, so the Go signer and

@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "<ReelFeed />: a vertical, swipeable short-video feed with instant swipe-to-play.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omadityaxd/reelplane.git",
+    "directory": "packages/sdk-react"
+  },
+  "homepage": "https://github.com/omadityaxd/reelplane/tree/main/packages/sdk-react#readme",
+  "bugs": {
+    "url": "https://github.com/omadityaxd/reelplane/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {

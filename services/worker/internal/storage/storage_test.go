@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/config"
+	"github.com/omadityaxd/reelplane/services/worker/internal/config"
 )
 
 // The same contract runs against the directory store and, with STORAGE_INTEGRATION=1, real S3.

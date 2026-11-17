@@ -18,11 +18,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/config"
-	"github.com/omadityashukla/reelplane/services/worker/internal/dbsetup"
-	"github.com/omadityashukla/reelplane/services/worker/internal/media"
-	"github.com/omadityashukla/reelplane/services/worker/internal/storage"
-	"github.com/omadityashukla/reelplane/services/worker/internal/testdb"
+	"github.com/omadityaxd/reelplane/services/worker/internal/config"
+	"github.com/omadityaxd/reelplane/services/worker/internal/dbsetup"
+	"github.com/omadityaxd/reelplane/services/worker/internal/media"
+	"github.com/omadityaxd/reelplane/services/worker/internal/storage"
+	"github.com/omadityaxd/reelplane/services/worker/internal/testdb"
 )
 
 type options struct {

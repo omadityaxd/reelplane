@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/queue"
-	"github.com/omadityashukla/reelplane/services/worker/internal/testdb"
+	"github.com/omadityaxd/reelplane/services/worker/internal/queue"
+	"github.com/omadityaxd/reelplane/services/worker/internal/testdb"
 )
 
 // Regression: a graceful release kept the attempt number, so the next claim reused the released

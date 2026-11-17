@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/storage"
-	"github.com/omadityashukla/reelplane/services/worker/internal/testdb"
+	"github.com/omadityaxd/reelplane/services/worker/internal/storage"
+	"github.com/omadityaxd/reelplane/services/worker/internal/testdb"
 )
 
 // Results is everything the run measured. Invariant fields must match expectations exactly.

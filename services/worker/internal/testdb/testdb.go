@@ -11,9 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/config"
-	"github.com/omadityashukla/reelplane/services/worker/internal/dbsetup"
-	"github.com/omadityashukla/reelplane/services/worker/internal/queue"
+	"github.com/omadityaxd/reelplane/services/worker/internal/config"
+	"github.com/omadityaxd/reelplane/services/worker/internal/dbsetup"
+	"github.com/omadityaxd/reelplane/services/worker/internal/queue"
 )
 
 // DB is a migrated test database: Owner bypasses RLS (for seeding and assertions), Worker is

@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/config"
+	"github.com/omadityaxd/reelplane/services/worker/internal/config"
 )
 
 const (

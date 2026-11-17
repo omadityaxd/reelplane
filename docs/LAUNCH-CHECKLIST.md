@@ -113,7 +113,7 @@ invalidates all of them.
 2. Push:
 
    ```bash
-   git remote add origin https://github.com/<you>/reelplane.git
+   git remote add origin https://github.com/omadityaxd/reelplane.git
    git push -u origin main
    ```
 

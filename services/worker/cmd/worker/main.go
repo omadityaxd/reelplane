@@ -12,13 +12,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/config"
-	"github.com/omadityashukla/reelplane/services/worker/internal/media"
-	"github.com/omadityashukla/reelplane/services/worker/internal/pipeline"
-	"github.com/omadityashukla/reelplane/services/worker/internal/queue"
-	"github.com/omadityashukla/reelplane/services/worker/internal/storage"
-	"github.com/omadityashukla/reelplane/services/worker/internal/webhooks"
-	"github.com/omadityashukla/reelplane/services/worker/internal/worker"
+	"github.com/omadityaxd/reelplane/services/worker/internal/config"
+	"github.com/omadityaxd/reelplane/services/worker/internal/media"
+	"github.com/omadityaxd/reelplane/services/worker/internal/pipeline"
+	"github.com/omadityaxd/reelplane/services/worker/internal/queue"
+	"github.com/omadityaxd/reelplane/services/worker/internal/storage"
+	"github.com/omadityaxd/reelplane/services/worker/internal/webhooks"
+	"github.com/omadityaxd/reelplane/services/worker/internal/worker"
 )
 
 const (

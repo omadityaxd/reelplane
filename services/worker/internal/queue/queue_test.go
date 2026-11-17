@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/queue"
-	"github.com/omadityashukla/reelplane/services/worker/internal/testdb"
+	"github.com/omadityaxd/reelplane/services/worker/internal/queue"
+	"github.com/omadityaxd/reelplane/services/worker/internal/testdb"
 )
 
 var noJitter = queue.Backoff{Base: time.Second, Max: time.Minute, Random: func() float64 { return 0 }}

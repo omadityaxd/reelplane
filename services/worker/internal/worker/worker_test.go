@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/media"
-	"github.com/omadityashukla/reelplane/services/worker/internal/pipeline"
-	"github.com/omadityashukla/reelplane/services/worker/internal/queue"
-	"github.com/omadityashukla/reelplane/services/worker/internal/storage"
-	"github.com/omadityashukla/reelplane/services/worker/internal/testdb"
-	"github.com/omadityashukla/reelplane/services/worker/internal/worker"
+	"github.com/omadityaxd/reelplane/services/worker/internal/media"
+	"github.com/omadityaxd/reelplane/services/worker/internal/pipeline"
+	"github.com/omadityaxd/reelplane/services/worker/internal/queue"
+	"github.com/omadityaxd/reelplane/services/worker/internal/storage"
+	"github.com/omadityaxd/reelplane/services/worker/internal/testdb"
+	"github.com/omadityaxd/reelplane/services/worker/internal/worker"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))

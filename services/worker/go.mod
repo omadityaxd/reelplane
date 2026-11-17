@@ -1,4 +1,4 @@
-module github.com/omadityashukla/reelplane/services/worker
+module github.com/omadityaxd/reelplane/services/worker
 
 go 1.27.0
 

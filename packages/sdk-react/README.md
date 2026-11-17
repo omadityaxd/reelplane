@@ -30,4 +30,5 @@ export function Reels() {
 - `renderOverlay`, `onActiveChange`, `onMetric`, `debug`: see the type definitions.
 
 Swipe, scroll or use the arrow keys to move; tap or Space to pause; `m` toggles sound. React 18
-or 19. MIT licensed.
+or 19. MIT licensed. Source, issues and the video backend:
+[github.com/omadityaxd/reelplane](https://github.com/omadityaxd/reelplane).

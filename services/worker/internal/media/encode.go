@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/proc"
+	"github.com/omadityaxd/reelplane/services/worker/internal/proc"
 )
 
 // ToneMapFilter converts HLG/PQ HDR (iPhone HDR video, Dolby Vision 8.4 base layer, HDR10)

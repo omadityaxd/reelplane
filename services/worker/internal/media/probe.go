@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/omadityashukla/reelplane/services/worker/internal/proc"
+	"github.com/omadityaxd/reelplane/services/worker/internal/proc"
 )
 
 // InvalidInputError means the file itself is unusable: retrying will not help.

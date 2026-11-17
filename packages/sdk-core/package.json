@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Framework-free core of the Reelplane SDK: resumable uploads, playback and preloading.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omadityaxd/reelplane.git",
+    "directory": "packages/sdk-core"
+  },
+  "homepage": "https://github.com/omadityaxd/reelplane/tree/main/packages/sdk-core#readme",
+  "bugs": {
+    "url": "https://github.com/omadityaxd/reelplane/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
