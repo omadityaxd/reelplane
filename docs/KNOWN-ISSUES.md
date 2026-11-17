@@ -50,6 +50,22 @@ below, with its impact and the fix I'd make.
   "Try again" button, which calls the new `FeedController.retry()`.
 - **Warming in hidden tabs, and warming stopped by one refused `play()`.** The warmer now skips
   its cycle while `document.hidden`. A refused warm-up is rescheduled, not dropped.
+- **`verifyWebhook` kept only the last `v1=` signature, with no guard on an empty secret.** It
+  now accepts any matching `v1` (several are sent while a secret is rotated), and refuses an
+  empty or missing secret with a `WebhookVerificationError`. Node already refused an empty HMAC
+  key, but other runtimes needn't.
+
+**Fixed before launch** (2026-11-17, security), each with tests:
+- **Database connections to a remote host weren't encrypted.** Node's `pg` only uses TLS when
+  asked. The app, scripts and worker now require TLS with a verified certificate for any
+  non-local database (Supabase's root CA for Supabase hosts), with no plain-text fallback.
+- **No security headers.** Every response now sends a Content-Security-Policy built from the
+  deployment's own Supabase and storage hosts, `X-Frame-Options: DENY`, `nosniff`, a referrer
+  policy, a permissions policy, `Cross-Origin-Opener-Policy` and HSTS. An e2e test plays and
+  swipes the feed and loads every public page under the policy with no violation.
+- **Vulnerable dependencies.** Next.js 16.4.6 (a moderate advisory in 16.3–16.4.4) and Go
+  toolchain 1.27.4 (15 standard-library advisories, 10 reachable from the worker). `pnpm
+  audit` and `govulncheck` are clean.
 
 ## Worker (Go)
 
@@ -79,8 +95,16 @@ below, with its impact and the fix I'd make.
 | Issue                                                              | Impact                                                                                                                                                                                            | Fix                                                                                                      |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | **`flush()` sends at most 100 events on page hide** (`metrics.ts`) | A very long session can lose events beyond 100 at the end.                                                                                                                                        | Split the final flush into several `keepalive` requests.                                                 |
-| **`verifyWebhook` keeps only the last `v1=` signature**            | A multi-signature header during secret rotation won't verify. No guard on an empty secret.                                                                                                        | Accept any matching `v1`; reject an empty secret.                                                        |
 | **Inlined first playlists only help hls.js on fast networks**      | Native HLS (every iOS browser) fetches playlists itself, and on slow networks the SDK starts from `hlsLowStartUrl`, which isn't inlined. Those first videos still make the two playlist requests. | Inline the low-start master and its first variant too; for native HLS, a `<link rel="preload">` of both. |
+
+## Security: accepted for launch
+
+| Issue                                                                  | Impact                                                                                                                                                                                                         | Fix                                                                                      |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **The CSP allows inline scripts**                                      | Next.js inlines its bootstrap scripts, so `script-src` keeps `'unsafe-inline'`. External scripts are still refused, and the app renders no raw HTML, so an injection needs a bug React doesn't already escape. | A per-request nonce (Next.js supports it, but every page becomes dynamic).               |
+| **FFmpeg parses untrusted uploads on the laptop** (`pnpm prod:worker`) | Uploads are limited to MP4/MOV/WebM/MKV, sniffed and size-capped, and FFmpeg gets only `file` input and the `mov`/`matroska` demuxers. A memory-safety bug in FFmpeg would still run as your user.             | Run the worker in its container (`services/worker/Dockerfile`), and keep FFmpeg current. |
+| **CI downloads FFmpeg's `latest` build without a checksum**            | A compromised download runs in CI only, with a read-only token and no secrets.                                                                                                                                 | Mirror a fixed build with a pinned SHA-256.                                              |
+| **A resumed upload doesn't check it's the same file**                  | Only the uploader's own video is affected.                                                                                                                                                                     | Listed under Upload path.                                                                |
 
 ## Operations
 

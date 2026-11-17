@@ -196,6 +196,11 @@ shows live playback stats; `/bench?preload=1` and `?preload=0` measure swipe-to-
 | `services/worker`    | Go transcoding worker                               |
 | `docs/`              | architecture, benchmarks, deploy, launch checklist  |
 
+## Security
+
+Please report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Known
+limitations are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
+
 ## License
 
 MIT

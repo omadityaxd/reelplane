@@ -100,7 +100,7 @@ unmeasured "fix" could just as well make it worse.
 is the second-slowest swipe, so these three outliers alone set it. All three targets were fully
 loaded at the swipe (`readyState` 4, the whole 12 s clip buffered, already warmed), so the
 network was not the cause. A 12–16 s wait with everything loaded means the page was not playing
-at all. The screenshot of the run shows iOS's "◀ Teams" back link, so the run was interrupted by
+at all. The screenshot of the run shows iOS's "◀" back link to another app, so the run was interrupted by
 an app switch at least once. That run's `/bench` could not record visibility, so the cause of
 each outlier can't be proven from it.
 

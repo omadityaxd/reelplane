@@ -38,15 +38,20 @@ const DEFAULT_TOLERANCE_SECONDS = 300;
 export async function verifyWebhook<T = unknown>(
   options: VerifyWebhookOptions,
 ): Promise<WebhookEvent<T>> {
-  const parts = new Map(
-    (options.signature ?? "").split(",").map((part) => {
-      const at = part.indexOf("=");
-      return [part.slice(0, at).trim(), part.slice(at + 1).trim()] as const;
-    }),
-  );
-  const timestamp = Number(parts.get("t"));
-  const received = parts.get("v1");
-  if (!Number.isInteger(timestamp) || !received || !/^[0-9a-f]{64}$/.test(received)) {
+  // An unset env var must not turn into "verify with an empty key", whatever the runtime allows.
+  if (typeof options.secret !== "string" || options.secret === "") {
+    throw new WebhookVerificationError("No webhook secret configured.");
+  }
+  const parts = (options.signature ?? "").split(",").map((part) => {
+    const at = part.indexOf("=");
+    return [part.slice(0, at).trim(), part.slice(at + 1).trim()] as const;
+  });
+  const timestamp = Number(parts.find(([name]) => name === "t")?.[1]);
+  // Several v1 values are sent while a secret is being rotated: any one may match.
+  const received = parts
+    .filter(([name, value]) => name === "v1" && /^[0-9a-f]{64}$/.test(value))
+    .map(([, value]) => value);
+  if (!Number.isInteger(timestamp) || received.length === 0) {
     throw new WebhookVerificationError("Missing or malformed Reelplane-Signature header.");
   }
   const age = (options.now ?? Date.now()) / 1000 - timestamp;
@@ -61,13 +66,12 @@ export async function verifyWebhook<T = unknown>(
     false,
     ["verify"],
   );
-  // subtle.verify compares in constant time.
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    key,
-    hexToBytes(received),
-    encoder.encode(`${timestamp}.${options.payload}`),
-  );
+  const signed = encoder.encode(`${timestamp}.${options.payload}`);
+  let valid = false;
+  for (const candidate of received) {
+    // subtle.verify compares in constant time.
+    if (await crypto.subtle.verify("HMAC", key, hexToBytes(candidate), signed)) valid = true;
+  }
   if (!valid) throw new WebhookVerificationError("Webhook signature does not match.");
   return JSON.parse(options.payload) as WebhookEvent<T>;
 }

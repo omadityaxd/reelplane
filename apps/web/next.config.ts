@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { NextConfig } from "next";
+import { securityHeaders } from "./lib/security-headers.ts";
 
 // One .env at the repo root configures everything (scripts, worker, web). Next reads only
 // apps/web/.env*, so load the root file too. Real environment variables and apps/web/.env.local
@@ -25,6 +26,8 @@ const config: NextConfig = {
   serverExternalPackages: ["pg"],
   poweredByHeader: false,
   allowedDevOrigins: lanHosts,
+  // Built when the app is built: on Vercel, from the Production env vars.
+  headers: async () => [{ source: "/:path*", headers: securityHeaders(process.env) }],
   typescript: {
     // Type-checking runs separately via `pnpm typecheck` (TypeScript 7).
     ignoreBuildErrors: true,
