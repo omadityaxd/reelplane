@@ -121,5 +121,11 @@ below, with its impact and the fix I'd make.
 - **Supabase pauses free projects** after 7 days without activity; the local project was paused
   when this list was written. A paused project means the live demo is down. Something has to use
   it at least weekly, or it moves to a paid plan.
+- **Email sign-in links open only on the device that requested them.** Supabase locks the email
+  templates until custom SMTP is configured, and the default link carries a PKCE code whose
+  verifier is in the requesting browser. GitHub sign-in is unaffected. Fix: custom SMTP, then the
+  `/auth/confirm` template in docs/LAUNCH-CHECKLIST.md step 9.
+- **A GitHub sign-in and an email sign-in are separate accounts** unless the GitHub account's
+  primary email is verified and the same address (Supabase links identities only then).
 - **Uploads are processed only while the laptop runs `pnpm prod:worker`** (in Docker). That's by design
   (see [DEPLOY.md](DEPLOY.md)); the demo says so.

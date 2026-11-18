@@ -217,11 +217,13 @@ Supabase → **Authentication → Emails → Magic Link**: the link in the templ
 {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email
 ```
 
-so a link requested on one device also opens on another.
+so a link requested on one device also opens on another. Supabase only lets you edit templates
+once custom SMTP is set up; until then the default link works on the device that requested it.
 
 - [ ] **Check:** `https://<your-app>.vercel.app/login` → **Sign in with GitHub** → GitHub asks
       to authorize "Reelplane" → you land on `/dashboard`, showing your GitHub email.
-- [ ] **Check:** sign out, request an email link, open it on your phone → it signs you in.
+- [ ] **Check:** sign out, request an email link, open it on your phone → it signs you in (with
+      the default template: open it on the same device).
 
 ## 10. Your user id (for seeding)
 
