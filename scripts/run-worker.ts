@@ -5,6 +5,9 @@
  * privilege escalation, a read-only filesystem except a size-capped /tmp, memory and process
  * limits, as the image's non-root user, and only the variables the worker reads.
  *
+ * `pnpm prod:reposter [-- -dry-run]` runs `worker reposter` the same way: it regenerates the
+ * posters of published videos from their originals, then exits.
+ *
  * Local development keeps the native worker (`pnpm worker:dev`, `pnpm phone`), or the
  * compose service (`pnpm worker:up`).
  */
@@ -12,7 +15,14 @@ import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 const IMAGE = "reelplane-worker:prod";
-const CONTAINER = "reelplane-worker-prod";
+/** A worker subcommand and its flags (`reposter -dry-run`); none runs the worker itself. */
+const COMMAND = process.argv.slice(2).filter((arg) => arg !== "--");
+if (COMMAND.length > 0 && COMMAND[0] !== "reposter") {
+  process.stderr.write(`prod:worker: unknown command ${COMMAND[0]}
+`);
+  process.exit(1);
+}
+const CONTAINER = COMMAND.length > 0 ? `reelplane-${COMMAND[0]}-prod` : "reelplane-worker-prod";
 /** Every variable the worker reads (services/worker/internal/config); nothing else goes in. */
 const WORKER_ENV = [
   "DATABASE_URL",
@@ -108,6 +118,7 @@ const run = [
   // the command line or the process list.
   ...WORKER_ENV.filter((name) => process.env[name]).flatMap((name) => ["-e", name]),
   IMAGE,
+  ...COMMAND,
 ];
 const child = spawn("docker", run, { stdio: "inherit" });
 // Ctrl+C reaches `docker run` directly, which hands it to the worker (it then drains). Forwarding

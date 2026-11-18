@@ -312,5 +312,9 @@ Then I report the results.
   from Debian's current packages. Dependabot proposes updates to the pinned base images.
 - **`pnpm worker:dev` (the worker natively) is for local development only,** against the local
   database and storage.
+- **Posters:** the worker picks the earliest frame that is neither dark, blown out nor flat.
+  After a change to that choice, `pnpm prod:reposter -- -dry-run` shows the new frames and
+  `pnpm prod:reposter` swaps them in from the kept originals, in the worker's container,
+  without re-transcoding.
 - **Supabase pauses a free project after 7 days without activity,** and a paused project means
   the demo is down. Opening the demo or the dashboard counts as activity.

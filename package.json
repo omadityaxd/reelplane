@@ -38,6 +38,7 @@
     "prod:migrate": "tsx --env-file=.env.production scripts/migrate.ts",
     "prod:init-storage": "tsx --env-file=.env.production scripts/init-storage.ts",
     "prod:worker": "tsx --env-file=.env.production scripts/run-worker.ts",
+    "prod:reposter": "tsx --env-file=.env.production scripts/run-worker.ts reposter",
     "prod:seed": "tsx --env-file=.env.production scripts/seed-showcase.ts --production"
   },
   "devDependencies": {

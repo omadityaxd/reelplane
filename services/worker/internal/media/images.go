@@ -30,13 +30,12 @@ type Images struct {
 // GenerateImages writes poster.jpg, thumb_N.jpg and builds the inline placeholder.
 func GenerateImages(ctx context.Context, ffmpeg, input, outDir string, probe Probe) (Images, error) {
 	duration := probe.Duration
-	// The poster comes from early in the clip (the first frame is often black).
-	posterAt := min(time.Second, duration/3)
 	images := Images{Poster: "poster.jpg"}
-
-	if err := still(ctx, ffmpeg, input, filepath.Join(outDir, images.Poster), posterAt, probe, posterShortSide, "", 3); err != nil {
-		return Images{}, fmt.Errorf("poster: %w", err)
+	poster, err := GeneratePoster(ctx, ffmpeg, input, outDir, images.Poster, probe)
+	if err != nil {
+		return Images{}, err
 	}
+	images.Placeholder = poster.Placeholder
 	for i := 1; i <= thumbnailCount; i++ {
 		name := fmt.Sprintf("thumb_%d.jpg", i)
 		at := duration * time.Duration(i) / time.Duration(thumbnailCount+1)
@@ -45,18 +44,36 @@ func GenerateImages(ctx context.Context, ffmpeg, input, outDir string, probe Pro
 		}
 		images.Thumbnails = append(images.Thumbnails, name)
 	}
+	return images, nil
+}
 
+// Poster is a poster still and the inline placeholder made from the same frame.
+type Poster struct {
+	At          time.Duration
+	Placeholder string // a tiny blurred JPEG as a data: URI
+}
+
+// GeneratePoster writes the poster to outDir/name from a representative frame (PickPosterTime)
+// and builds the placeholder from the same frame. A clip that can't be analysed gets the
+// default time: a poster is never worth failing a job over.
+func GeneratePoster(ctx context.Context, ffmpeg, input, outDir, name string, probe Probe) (Poster, error) {
+	at, err := PickPosterTime(ctx, ffmpeg, input, probe)
+	if err != nil && ctx.Err() != nil {
+		return Poster{}, err
+	}
+	if err := still(ctx, ffmpeg, input, filepath.Join(outDir, name), at, probe, posterShortSide, "", 3); err != nil {
+		return Poster{}, fmt.Errorf("poster: %w", err)
+	}
 	placeholderPath := filepath.Join(outDir, "placeholder.jpg")
-	if err := still(ctx, ffmpeg, input, placeholderPath, posterAt, probe, placeholderShortSide, ",boxblur=2:1", 10); err != nil {
-		return Images{}, fmt.Errorf("placeholder: %w", err)
+	if err := still(ctx, ffmpeg, input, placeholderPath, at, probe, placeholderShortSide, ",boxblur=2:1", 10); err != nil {
+		return Poster{}, fmt.Errorf("placeholder: %w", err)
 	}
 	raw, err := os.ReadFile(placeholderPath)
 	if err != nil {
-		return Images{}, fmt.Errorf("read placeholder: %w", err)
+		return Poster{}, fmt.Errorf("read placeholder: %w", err)
 	}
 	_ = os.Remove(placeholderPath) // inlined into the database row; never uploaded
-	images.Placeholder = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(raw)
-	return images, nil
+	return Poster{At: at, Placeholder: "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(raw)}, nil
 }
 
 func still(ctx context.Context, ffmpeg, input, output string, at time.Duration, probe Probe, short int, extraFilter string, quality int) error {

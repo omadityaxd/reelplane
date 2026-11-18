@@ -1,9 +1,13 @@
 // Command worker is the Reelplane transcoding worker: it claims jobs from Postgres, runs
 // FFmpeg and publishes HLS to object storage. Configuration: see internal/config.
+//
+// `worker reposter [-dry-run]` instead regenerates the posters of published videos from their
+// originals (internal/reposter), without re-transcoding, and exits.
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,6 +20,7 @@ import (
 	"github.com/omadityaxd/reelplane/services/worker/internal/media"
 	"github.com/omadityaxd/reelplane/services/worker/internal/pipeline"
 	"github.com/omadityaxd/reelplane/services/worker/internal/queue"
+	"github.com/omadityaxd/reelplane/services/worker/internal/reposter"
 	"github.com/omadityaxd/reelplane/services/worker/internal/storage"
 	"github.com/omadityaxd/reelplane/services/worker/internal/webhooks"
 	"github.com/omadityaxd/reelplane/services/worker/internal/worker"
@@ -27,7 +32,11 @@ const (
 )
 
 func main() {
-	if err := run(); err != nil {
+	runCommand := run
+	if len(os.Args) > 1 && os.Args[1] == "reposter" {
+		runCommand = func() error { return runReposter(os.Args[2:]) }
+	}
+	if err := runCommand(); err != nil {
 		fmt.Fprintln(os.Stderr, "worker:", err)
 		os.Exit(1)
 	}
@@ -94,4 +103,39 @@ func newLogger(format string) *slog.Logger {
 		return slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	}
 	return slog.New(slog.NewTextHandler(os.Stdout, nil))
+}
+
+func runReposter(args []string) error {
+	flags := flag.NewFlagSet("reposter", flag.ContinueOnError)
+	dryRun := flags.Bool("dry-run", false, "choose and report the new poster frames, change nothing")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+	log := newLogger(cfg.LogFormat)
+	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	pool, err := queue.OpenPool(stop, cfg.DatabaseURL, 1)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	store, err := storage.NewS3(cfg.Storage)
+	if err != nil {
+		return err
+	}
+	results, err := reposter.Run(stop, pool, store, reposter.Options{
+		FFmpeg: cfg.FFmpegPath, FFprobe: cfg.FFprobePath, TempDir: cfg.TempDir, DryRun: *dryRun, Log: log,
+	})
+	changed := 0
+	for _, result := range results {
+		if result.Changed {
+			changed++
+		}
+	}
+	log.Info("reposter done", "videos", len(results), "changed", changed, "dry_run", *dryRun)
+	return err
 }
