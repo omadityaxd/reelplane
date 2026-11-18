@@ -12,6 +12,7 @@ Docker Desktop. Postgres 18.6 and RustFS 1.0.4 run locally in Docker.
 (`requestVideoFrameCallback`), measured by [`/bench`](../apps/web/app/bench/bench-runner.tsx).
 
 **Method.**
+
 - **Browser and build:** Chrome via DevTools, emulating a 390x844 @3x touch phone, against the
   production build (`next start`).
 - **Content:** the same 30 bench videos (6 licensed clips × 5 copies, each a distinct video
@@ -105,6 +106,7 @@ an app switch at least once. That run's `/bench` could not record visibility, so
 each outlier can't be proven from it.
 
 **What the outliers led to:**
+
 - **A real bug, fixed:** a swipe right before the page was hidden started `play()` while hidden.
   If the browser refused it, nothing resumed the video when the page came back: it waited for
   a tap, fully buffered, exactly as in these three swipes. The visibility handler now resumes the

@@ -21,6 +21,7 @@ need no card, but players can't read a private bucket directly.
 | C. B2 private + Cloudflare Worker     | No (Cloudflare free plan, _verify_)          | 10 GB stored; Worker 100k requests/day (~6k video views)            | A small signing proxy (Worker) in front of the bucket                         |
 
 **What A means in practice:**
+
 - **Uploads go up to 50 MB** (a 60 s phone video is usually 30–80 MB, so some won't fit).
 - **The bucket is public as a whole,** originals included. They sit at
   `originals/<project uuid>/<video uuid>/source`, a path the API never reveals and nobody can

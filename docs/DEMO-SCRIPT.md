@@ -1,6 +1,7 @@
 # 60-second demo video
 
 **What it shows:**
+
 1. The feed is instant on a real phone.
 2. An upload becomes an adaptive stream.
 3. The queue survives workers being killed.
@@ -13,18 +14,18 @@ the video works muted on LinkedIn and GitHub. Every number in a caption is from
 ## Before recording
 
 - [ ] `pnpm infra:up`, then `pnpm phone`: the worker, demo videos and app, plus the URL for your
-  phone.
+      phone.
 - [ ] Your **original** phone clips are in `content/showcase/phone/` and seeded, not the
-  WhatsApp copies. They lead the feed and show the 1080p/60 fps ladder.
+      WhatsApp copies. They lead the feed and show the 1080p/60 fps ladder.
 - [ ] One extra phone clip under 60 s, **not** seeded, kept on the laptop for the upload shot.
 - [ ] Phone: Do Not Disturb on, brightness up, sound on. Screen recording on (iOS Control
-  Centre → Screen Recording; long-press it to turn the microphone off).
+      Centre → Screen Recording; long-press it to turn the microphone off).
 - [ ] Laptop: a 1920×1080 window, a clean browser profile (no bookmarks bar), terminal font 18+,
-  OBS or the Xbox Game Bar (Win+Alt+R) for the screen.
+      OBS or the Xbox Game Bar (Win+Alt+R) for the screen.
 - [ ] A second terminal ready with `pnpm worker:chaos -jobs 30 -workers 3 -seed 7`.
-  30 jobs keeps it under a minute.
+      30 jobs keeps it under a minute.
 - [ ] Dashboard signed in. Locally that's no sign-in, or `REELPLANE_TEST_AUTH=1`: sign in with
-  GitHub as your own login.
+      GitHub as your own login.
 
 ## Shots
 

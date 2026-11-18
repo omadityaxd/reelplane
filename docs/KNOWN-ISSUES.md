@@ -6,6 +6,7 @@ What they found that mattered is fixed and tested; the commit lists it. Everythi
 below, with its impact and the fix I'd make.
 
 **Fixed in that round**, for reference:
+
 - **Storage prefixes reused after a graceful release,** which let the sweeper delete a
   published video's files (critical).
 - **Fencing that a restarted worker with the same id could pass.**
@@ -26,6 +27,7 @@ below, with its impact and the fix I'd make.
 - **The feed's buttons not working from the keyboard.**
 
 **Fixed since** (2026-11-13), each with tests:
+
 - **No deadline on a job or an encode.** A job now stops after `WORKER_JOB_TIMEOUT` (45 min).
   The encode and stills stop after 2 min + 20× the video's length. Both are retried.
 - **No cap on the downloaded size.** The download stops past the declared `size_bytes`, and the
@@ -56,6 +58,7 @@ below, with its impact and the fix I'd make.
   key, but other runtimes needn't.
 
 **Fixed before launch** (2026-11-17, security), each with tests:
+
 - **Database connections to a remote host weren't encrypted.** Node's `pg` only uses TLS when
   asked. The app, scripts and worker now require TLS with a verified certificate for any
   non-local database (Supabase's root CA for Supabase hosts), with no plain-text fallback.
