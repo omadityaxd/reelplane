@@ -184,10 +184,13 @@ flow.
    - `RATE_LIMIT_SCALE`
    - `REELPLANE_LOCAL_AUTH`
    - `WEBHOOK_ALLOW_PRIVATE_URLS`
-5. **Settings → Functions → Region:** the same region as your Supabase project.
+5. **Function region:** `apps/web/vercel.json` pins it to `fra1` (Frankfurt), next to the
+   Supabase project in eu-central-1. If your Supabase project is elsewhere, change `regions`
+   there: the dashboard setting alone did not take effect.
 6. **Deploy.**
 
-- [ ] **Check:** `https://<your-app>.vercel.app/v1/health` answers `{"status":"ok"}`.
+- [ ] **Check:** `https://<your-app>.vercel.app/v1/health` answers `{"status":"ok"}`, and its
+      `x-vercel-id` header contains `::fra1::` (the function region).
 - [ ] **Check:** `https://<your-app>.vercel.app/` shows "The demo feed is not set up yet". The
       demo key comes in step 11.
 
