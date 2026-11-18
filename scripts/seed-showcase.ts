@@ -86,11 +86,15 @@ function writeEnvFile(path: string, entries: Map<string, string>): void {
   writeFileSync(path, `${lines.join("\n")}\n`);
 }
 
-/** Adds manifest entries for phone videos that are not listed yet. */
-function loadManifest(): ManifestEntry[] {
+/**
+ * Reads the manifest. With `addPhoneVideos`, first adds entries for phone videos that are not
+ * listed yet (and saves the manifest).
+ */
+function loadManifest(addPhoneVideos: boolean): ManifestEntry[] {
   const manifest: ManifestEntry[] = existsSync(MANIFEST)
     ? JSON.parse(readFileSync(MANIFEST, "utf8"))
     : [];
+  if (!addPhoneVideos) return manifest;
   const phoneDir = join(SHOWCASE, "phone");
   const known = new Set(manifest.map((entry) => entry.file));
   for (const name of existsSync(phoneDir) ? readdirSync(phoneDir).sort() : []) {
@@ -343,10 +347,16 @@ The project already has a publishable key (keys are shown once). Keep using it, 
   process.stdout.write(`demo project ${projectId}; allowed origins: ${origins.join(", ")}\n`);
   // The `latest` feed shows the most recently published first. So the licensed clips are
   // published first (and fully), then the phone videos: phone videos lead the feed, the
-  // Blender clips come last. (The bench project uses only the licensed clips.)
-  const manifest = loadManifest();
+  // Blender clips come last. The bench project and production use only the licensed clips:
+  // personal phone videos never leave the laptop.
+  const usePhoneVideos = !BENCH && !PRODUCTION;
+  const manifest = loadManifest(usePhoneVideos);
   const licensed = manifest.filter((entry) => !entry.file.startsWith("phone/"));
-  const phone = BENCH ? [] : manifest.filter((entry) => entry.file.startsWith("phone/"));
+  const phone = usePhoneVideos ? manifest.filter((entry) => entry.file.startsWith("phone/")) : [];
+  if (PRODUCTION) {
+    process.stdout.write(`production: ${licensed.length} licensed clips, no phone videos
+`);
+  }
   for (const group of [licensed, phone]) {
     await uploadAll(deps, projectId, group);
     await waitForWorker(deps, projectId);
