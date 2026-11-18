@@ -233,12 +233,19 @@ you and shows in your dashboard.
 Two terminals, both at the repo root:
 
 ```bash
-# terminal 1: a worker on production's queue and storage (Ctrl+C when seeding is done)
+# terminal 1: the worker on production's queue and storage, in its Docker container
+# (Ctrl+C when seeding is done; the first run builds the image, a few minutes)
 pnpm prod:worker
 
 # terminal 2:
 pnpm prod:seed
 ```
+
+`pnpm prod:worker` always runs the worker in its container, never directly on your laptop: the
+files it processes can come from anyone. The container has no Linux capabilities, a read-only
+filesystem except a size-capped `/tmp` it can't run programs from, memory and process limits,
+no root, and only the worker's own variables (not `API_KEY_PEPPER`, `CRON_SECRET` or the
+Supabase keys). Docker Desktop must be running.
 
 The seed uploads every clip in `content/showcase` through the real upload path, waits until
 the worker has published them, and prints:
@@ -293,7 +300,12 @@ Then I report the results.
 
 ## Afterwards
 
-- **To process uploads, run `pnpm prod:worker`.** While it's off, uploads wait in the queue,
-  and the upload page says so.
+- **To process uploads, run `pnpm prod:worker`** (Docker Desktop running). While it's off,
+  uploads wait in the queue, and the upload page says so. Ctrl+C stops it cleanly: a job in
+  progress finishes or goes back to the queue.
+- **FFmpeg security updates:** `pnpm prod:worker` rebuilds the image's FFmpeg layer once a week
+  from Debian's current packages. Dependabot proposes updates to the pinned base images.
+- **`pnpm worker:dev` (the worker natively) is for local development only,** against the local
+  database and storage.
 - **Supabase pauses a free project after 7 days without activity,** and a paused project means
   the demo is down. Opening the demo or the dashboard counts as activity.

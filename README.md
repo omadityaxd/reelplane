@@ -178,8 +178,10 @@ set `TRUSTED_PROXY=proxy` so per-client rate limits count real addresses.
 
 ```bash
 pnpm check                       # lint + typecheck + all tests (needs infra:up)
-pnpm worker:dev                  # the worker natively (Go + FFmpeg on PATH)
-pnpm worker:up                   # or in Docker
+pnpm worker:dev                  # the worker natively (Go + FFmpeg on PATH), local only
+pnpm worker:up                   # or in its locked-down container (production always uses it)
+                                 # stop it (docker compose --profile worker stop) before pnpm check:
+                                 # it shares the local database and would take the tests' jobs
 pnpm worker:chaos                # kill workers at random while jobs run; checks exactly-once
 pnpm --filter @reelplane/web dev # http://localhost:3000; REELPLANE_TEST_AUTH=1 simulates GitHub
 pnpm --filter @reelplane/web e2e # Playwright against a running app

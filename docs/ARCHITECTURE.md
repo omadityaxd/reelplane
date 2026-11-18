@@ -70,7 +70,7 @@ newest phase first. Numbers come from [BENCHMARKS.md](BENCHMARKS.md).
     alive).
   - A daily Vercel cron expires demo uploads and sweeps storage without it.
   - Webhooks wait in the outbox.
-- **Trade-off:** uploads are only processed while the laptop runs `pnpm prod:worker`. Moving
+- **Trade-off:** uploads are only processed while the laptop runs `pnpm prod:worker` (the worker's Docker container). Moving
   the worker is a deploy, not a code change: it's one Docker image configured by environment
   variables. Measured on 2 vCPUs: 1.38× realtime.
 

@@ -57,7 +57,8 @@ services:
     profiles: ["worker"]
     build: ./services/worker
     environment:
-      DATABASE_URL: postgres://reelplane:reelplane@postgres:5432/reelplane
+      # Compose's private network: the one place TLS is explicitly off (see packages/db/src/pool.ts).
+      DATABASE_URL: postgres://reelplane:reelplane@postgres:5432/reelplane?sslmode=disable
       STORAGE_PROVIDER: local
       STORAGE_ENDPOINT: http://storage:9000
       STORAGE_REGION: us-east-1
@@ -70,6 +71,15 @@ services:
         condition: service_healthy
       storage:
         condition: service_healthy
+    # The same lockdown as `pnpm prod:worker` (scripts/run-worker.ts).
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=4g
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    pids_limit: 512
+    mem_limit: 4g
+    init: true
     # Longer than WORKER_SHUTDOWN_GRACE (20s), so SIGTERM can finish or release the job.
     stop_grace_period: 30s
     restart: unless-stopped

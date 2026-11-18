@@ -59,6 +59,13 @@ below, with its impact and the fix I'd make.
 
 **Fixed before launch** (2026-11-17, security), each with tests:
 
+- **The production worker ran FFmpeg directly on the laptop.** `pnpm prod:worker` now runs the
+  worker only in its Docker container: non-root, no Linux capabilities, no privilege escalation,
+  a read-only filesystem except a 4 GB `/tmp` that can't run programs, 4 GB of memory, 512
+  processes, and only the worker's own variables. Base images are pinned by digest; FFmpeg is
+  refreshed weekly from Debian. The local compose worker has the same lockdown, and the
+  dashboard e2e transcodes through it. The native worker is for local development only.
+
 - **Database connections to a remote host weren't encrypted.** Node's `pg` only uses TLS when
   asked. The app, scripts and worker now require TLS with a verified certificate for any
   non-local database (Supabase's root CA for Supabase hosts), with no plain-text fallback.
@@ -102,17 +109,17 @@ below, with its impact and the fix I'd make.
 
 ## Security: accepted for launch
 
-| Issue                                                                  | Impact                                                                                                                                                                                                         | Fix                                                                                      |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **The CSP allows inline scripts**                                      | Next.js inlines its bootstrap scripts, so `script-src` keeps `'unsafe-inline'`. External scripts are still refused, and the app renders no raw HTML, so an injection needs a bug React doesn't already escape. | A per-request nonce (Next.js supports it, but every page becomes dynamic).               |
-| **FFmpeg parses untrusted uploads on the laptop** (`pnpm prod:worker`) | Uploads are limited to MP4/MOV/WebM/MKV, sniffed and size-capped, and FFmpeg gets only `file` input and the `mov`/`matroska` demuxers. A memory-safety bug in FFmpeg would still run as your user.             | Run the worker in its container (`services/worker/Dockerfile`), and keep FFmpeg current. |
-| **CI downloads FFmpeg's `latest` build without a checksum**            | A compromised download runs in CI only, with a read-only token and no secrets.                                                                                                                                 | Mirror a fixed build with a pinned SHA-256.                                              |
-| **A resumed upload doesn't check it's the same file**                  | Only the uploader's own video is affected.                                                                                                                                                                     | Listed under Upload path.                                                                |
+| Issue                                                       | Impact                                                                                                                                                                                                                                             | Fix                                                                                        |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **The CSP allows inline scripts**                           | Next.js inlines its bootstrap scripts, so `script-src` keeps `'unsafe-inline'`. External scripts are still refused, and the app renders no raw HTML, so an injection needs a bug React doesn't already escape.                                     | A per-request nonce (Next.js supports it, but every page becomes dynamic).                 |
+| **FFmpeg parses untrusted uploads**                         | Contained: a memory-safety bug in FFmpeg runs inside the locked-down container (see Fixed before launch), not as your user on the laptop. It could still read the worker's own variables (database and storage credentials) and reach the network. | Run the worker on a separate machine or VM, with storage credentials scoped to the bucket. |
+| **CI downloads FFmpeg's `latest` build without a checksum** | A compromised download runs in CI only, with a read-only token and no secrets.                                                                                                                                                                     | Mirror a fixed build with a pinned SHA-256.                                                |
+| **A resumed upload doesn't check it's the same file**       | Only the uploader's own video is affected.                                                                                                                                                                                                         | Listed under Upload path.                                                                  |
 
 ## Operations
 
 - **Supabase pauses free projects** after 7 days without activity; the local project was paused
   when this list was written. A paused project means the live demo is down. Something has to use
   it at least weekly, or it moves to a paid plan.
-- **Uploads are processed only while the laptop runs `pnpm prod:worker`.** That's by design
+- **Uploads are processed only while the laptop runs `pnpm prod:worker`** (in Docker). That's by design
   (see [DEPLOY.md](DEPLOY.md)); the demo says so.
