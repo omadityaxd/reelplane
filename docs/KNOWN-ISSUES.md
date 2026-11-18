@@ -121,6 +121,13 @@ below, with its impact and the fix I'd make.
 - **Supabase pauses free projects** after 7 days without activity; the local project was paused
   when this list was written. A paused project means the live demo is down. Something has to use
   it at least weekly, or it moves to a paid plan.
+- **The daily cleanup is a Vercel Cron Job, which Vercel now calls legacy** (to be migrated to
+  Schedules, no date given; checked 2026-11-18). Cron Jobs keep working; Schedules is still in
+  beta, so the launch stays on Cron Jobs. Migrating is free on Hobby (5,000 runs a month) and
+  the route needs no change: a path schedule still sends `Authorization: Bearer $CRON_SECRET`.
+  In `apps/web/vercel.json`, replace `crons` (never keep both: the job would run twice) with
+  `"schedules": { "cleanup": { "schedule": "17 4 * * *", "path": "/api/cron/cleanup", "requestMethod": "GET" } }`
+  (path schedules default to POST). See vercel.com/docs/schedules/migrate-from-cron-jobs.
 - **Email sign-in links open only on the device that requested them.** Supabase locks the email
   templates until custom SMTP is configured, and the default link carries a PKCE code whose
   verifier is in the requesting browser. GitHub sign-in is unaffected. Fix: custom SMTP, then the
