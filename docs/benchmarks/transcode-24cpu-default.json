@@ -54,7 +54,7 @@
       "mediaDurationMs": 12000
     },
     {
-      "clip": "WhatsApp Video 2026-11-01 at 6.34.13 PM.mp4",
+      "clip": "phone-2.mp4",
       "state": "succeeded",
       "preset": "veryfast",
       "source": "576x1024@29.95fps",
@@ -119,7 +119,7 @@
       "mediaDurationMs": 12000
     },
     {
-      "clip": "WhatsApp Video 2026-11-01 at 6.33.59 PM.mp4",
+      "clip": "phone-1.mp4",
       "state": "succeeded",
       "preset": "veryfast",
       "source": "576x1024@29.93fps",
@@ -132,7 +132,7 @@
       "mediaDurationMs": 15266
     },
     {
-      "clip": "WhatsApp Video 2026-11-01 at 6.34.28 PM.mp4",
+      "clip": "phone-3.mp4",
       "state": "succeeded",
       "preset": "veryfast",
       "source": "576x1024@28.14fps",

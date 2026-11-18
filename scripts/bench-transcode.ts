@@ -41,8 +41,14 @@ interface Metrics {
 const clips = ["licensed", "phone"].flatMap((dir) =>
   readdirSync(join(SHOWCASE, dir))
     .filter((name) => [".mp4", ".mov"].includes(extname(name).toLowerCase()))
+    .sort()
     .map((name) => join(SHOWCASE, dir, name)),
 );
+/** How each clip appears in the results: your phone videos only as phone-1, phone-2, … */
+const labels = new Map(clips.map((path) => [path, path.split(/[\\/]/).at(-1) ?? path] as const));
+for (const [index, path] of clips.filter((p) => p.includes(join(SHOWCASE, "phone"))).entries()) {
+  labels.set(path, `phone-${index + 1}${extname(path)}`);
+}
 
 const pool = createPool(resolveDatabaseUrl(), { max: 2, applicationName: "reelplane-bench" });
 try {
@@ -83,7 +89,7 @@ try {
   }
 
   const results = rows.map((row) => ({
-    clip: ids.get(row.video_id)?.split(/[\\/]/).at(-1),
+    clip: labels.get(ids.get(row.video_id) ?? ""),
     state: row.state,
     ...row.metrics,
   }));

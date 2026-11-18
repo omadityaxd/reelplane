@@ -26,6 +26,8 @@ content/showcase/**/*.mov
 content/showcase/**/*.MOV
 content/showcase/**/*.webm
 content/showcase/**/*.m4v
+# Your own phone videos and their manifest stay local: nothing about them is public.
+content/showcase/phone/
 
 # Playwright output
 apps/web/test-results/

@@ -38,7 +38,15 @@ loadRootEnv();
 
 const ROOT = join(import.meta.dirname, "..");
 const SHOWCASE = join(ROOT, "content", "showcase");
+/** The licensed clips (committed). */
 const MANIFEST = join(SHOWCASE, "licenses.json");
+/** Your own phone videos: a local, gitignored manifest, so nothing about them is public. */
+const PHONE_MANIFEST = join(SHOWCASE, "phone", "licenses.json");
+/**
+ * The feed shows the most recently published first, so these are published last, one at a time,
+ * in reverse: the first one listed opens the feed. The 1080p60 clips are the sharpest.
+ */
+const LEAD_CLIPS = ["licensed/bbb60-01.mp4", "licensed/bbb60-02.mp4"];
 const WEB_ENV = join(ROOT, "apps", "web", ".env.local");
 const BENCH = process.argv.includes("--bench");
 /**
@@ -86,31 +94,52 @@ function writeEnvFile(path: string, entries: Map<string, string>): void {
   writeFileSync(path, `${lines.join("\n")}\n`);
 }
 
+function readManifest(path: string): ManifestEntry[] {
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : [];
+}
+
 /**
- * Reads the manifest. With `addPhoneVideos`, first adds entries for phone videos that are not
- * listed yet (and saves the manifest).
+ * The licensed clips, plus (with `addPhoneVideos`) your phone videos: entries for files not
+ * listed yet are added to the local phone manifest first.
  */
 function loadManifest(addPhoneVideos: boolean): ManifestEntry[] {
-  const manifest: ManifestEntry[] = existsSync(MANIFEST)
-    ? JSON.parse(readFileSync(MANIFEST, "utf8"))
-    : [];
-  if (!addPhoneVideos) return manifest;
+  const licensed = readManifest(MANIFEST).filter((entry) => !entry.file.startsWith("phone/"));
+  if (!addPhoneVideos) return licensed;
+  const phone = readManifest(PHONE_MANIFEST);
+  const known = new Set(phone.map((entry) => entry.file));
   const phoneDir = join(SHOWCASE, "phone");
-  const known = new Set(manifest.map((entry) => entry.file));
-  for (const name of existsSync(phoneDir) ? readdirSync(phoneDir).sort() : []) {
-    if (![".mp4", ".mov", ".m4v"].includes(extname(name).toLowerCase())) continue;
-    const file = `phone/${name}`;
-    if (known.has(file)) continue;
-    manifest.push({
-      file,
+  const added: ManifestEntry[] = (existsSync(phoneDir) ? readdirSync(phoneDir).sort() : [])
+    .filter((name) => [".mp4", ".mov", ".m4v"].includes(extname(name).toLowerCase()))
+    .filter((name) => !known.has(`phone/${name}`))
+    .map((name) => ({
+      file: `phone/${name}`,
       title: name.replace(/\.[^.]+$/, ""),
       creator: "Project author",
       credit: "Recorded by the project author",
       license: "Owned by the project author",
-    });
-  }
-  writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
-  return manifest;
+    }));
+  const allPhone = [...phone, ...added];
+  if (added.length > 0) writeFileSync(PHONE_MANIFEST, `${JSON.stringify(allPhone, null, 2)}\n`);
+  return [...licensed, ...allPhone];
+}
+
+/**
+ * Publish order, oldest first (the feed shows the newest first): the other licensed clips, then
+ * the lead clips one at a time in reverse, then phone videos (local only), which lead locally.
+ */
+function publishGroups(manifest: ManifestEntry[]): ManifestEntry[][] {
+  const isPhone = (entry: ManifestEntry) => entry.file.startsWith("phone/");
+  const isLead = (entry: ManifestEntry) => LEAD_CLIPS.includes(entry.file);
+  const leads = [...LEAD_CLIPS]
+    .reverse()
+    .flatMap((file) => manifest.filter((entry) => entry.file === file))
+    .map((entry) => [entry]);
+  const phone = manifest.filter(isPhone);
+  return [
+    manifest.filter((entry) => !isPhone(entry) && !isLead(entry)),
+    ...leads,
+    ...(phone.length > 0 ? [phone] : []),
+  ];
 }
 
 function durationSeconds(path: string): number {
@@ -345,19 +374,16 @@ The project already has a publishable key (keys are shown once). Keep using it, 
     writeEnvFile(WEB_ENV, env);
   }
   process.stdout.write(`demo project ${projectId}; allowed origins: ${origins.join(", ")}\n`);
-  // The `latest` feed shows the most recently published first. So the licensed clips are
-  // published first (and fully), then the phone videos: phone videos lead the feed, the
-  // Blender clips come last. The bench project and production use only the licensed clips:
-  // personal phone videos never leave the laptop.
-  const usePhoneVideos = !BENCH && !PRODUCTION;
-  const manifest = loadManifest(usePhoneVideos);
-  const licensed = manifest.filter((entry) => !entry.file.startsWith("phone/"));
-  const phone = usePhoneVideos ? manifest.filter((entry) => entry.file.startsWith("phone/")) : [];
+  // Each group is published fully before the next, so the feed order is fixed (publishGroups).
+  // The bench project and production use only the licensed clips: personal phone videos never
+  // leave the laptop.
+  const manifest = loadManifest(!BENCH && !PRODUCTION);
   if (PRODUCTION) {
-    process.stdout.write(`production: ${licensed.length} licensed clips, no phone videos
-`);
+    process.stdout.write(
+      `production: ${manifest.length} licensed clips, no phone videos; the feed opens with ${LEAD_CLIPS.join(", ")}\n`,
+    );
   }
-  for (const group of [licensed, phone]) {
+  for (const group of publishGroups(manifest)) {
     await uploadAll(deps, projectId, group);
     await waitForWorker(deps, projectId);
   }

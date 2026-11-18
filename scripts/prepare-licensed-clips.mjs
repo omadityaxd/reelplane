@@ -148,7 +148,6 @@ const manifest = CLIPS.map(([id, start, duration, centre], index) => {
 });
 
 const manifestPath = join(root, "showcase", "licenses.json");
-const existing = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : [];
-const phone = existing.filter((entry) => entry.file.startsWith("phone/"));
-writeFileSync(manifestPath, `${JSON.stringify([...manifest, ...phone], null, 2)}\n`);
+// Licensed clips only: phone videos have their own, gitignored manifest (showcase/phone/).
+writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 process.stdout.write(`manifest: ${manifestPath}\n`);

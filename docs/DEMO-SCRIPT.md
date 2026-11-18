@@ -15,8 +15,8 @@ the video works muted on LinkedIn and GitHub. Every number in a caption is from
 
 - [ ] `pnpm infra:up`, then `pnpm phone`: the worker, demo videos and app, plus the URL for your
       phone.
-- [ ] Your **original** phone clips are in `content/showcase/phone/` and seeded, not the
-      WhatsApp copies. They lead the feed and show the 1080p/60 fps ladder.
+- [ ] Your **original** phone clips are in `content/showcase/phone/` and seeded, not
+      copies recompressed by a messaging app. They lead the feed and show the 1080p/60 fps ladder.
 - [ ] One extra phone clip under 60 s, **not** seeded, kept on the laptop for the upload shot.
 - [ ] Phone: Do Not Disturb on, brightness up, sound on. Screen recording on (iOS Control
       Centre → Screen Recording; long-press it to turn the microphone off).
