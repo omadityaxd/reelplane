@@ -33,8 +33,9 @@ async function signIn(page: Page, login: string): Promise<void> {
   await expect(page).toHaveURL(/\/auth\/test-github/);
   await page.getByLabel("GitHub login").fill(login);
   await page.getByRole("button", { name: "Authorize" }).click();
-  // Wait for the redirect that sets the session, so the next navigation is signed in.
-  await expect(page).not.toHaveURL(/\/auth\/test-github/);
+  // Wait for the redirect that sets the session, so the next navigation is signed in. Allow for
+  // a busy machine: next to the playback tests (several tabs decoding video) it took over 5 s.
+  await expect(page).not.toHaveURL(/\/auth\/test-github/, { timeout: 15_000 });
 }
 
 async function freshPage(browser: Browser): Promise<Page> {

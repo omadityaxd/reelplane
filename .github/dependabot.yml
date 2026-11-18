@@ -10,6 +10,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # Node types follow the runtime (.nvmrc, Vercel): a newer major would type-check APIs
+      # the deployed Node doesn't have. Bump by hand with .nvmrc.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
@@ -22,6 +27,13 @@ updates:
     groups:
       go-minor-and-patch:
         update-types: [minor, patch]
+
+  # The worker image's digest-pinned base images (Go build image, Debian runtime).
+  - package-ecosystem: docker
+    directory: /services/worker
+    schedule:
+      interval: weekly
+      day: monday
 
   # Keeps the SHA-pinned actions current (it updates the SHA and the version comment).
   - package-ecosystem: github-actions
