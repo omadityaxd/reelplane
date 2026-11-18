@@ -6,6 +6,7 @@ upload, transcoding and feed pipeline behind it, built to run free.**
 **Live demo:** _link coming soon_ · ![Demo GIF](docs/demo.gif) _(placeholder)_
 
 Reelplane gives you three things:
+
 - **A feed component** that plays the next video the moment you swipe.
 - **Resumable uploads straight to storage.**
 - **A Go/FFmpeg worker** that turns uploads into an adaptive HLS ladder.
@@ -88,6 +89,7 @@ flowchart LR
 ### How the queue survives crashes
 
 Postgres is the queue; there's no Kafka or SQS.
+
 - **Claiming:** workers take jobs with `FOR UPDATE SKIP LOCKED`, under a lease they renew with
   heartbeats.
 - **Fencing:** a worker whose lease expired can't publish, because every write checks the lease
@@ -118,6 +120,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 The feed keeps four `<video>` elements and recycles them as you swipe: the current video, the
 next two, and the previous one.
+
 - **Preloading:** the next videos load about one segment (~4 s).
 - **Warming:** the very next one plays a single muted frame every 4 s, so its decoder is ready
   before you swipe. That's what takes swipe-to-play from ~150 ms to 35 ms.
@@ -146,6 +149,7 @@ routes, and a test fails if they drift from the code.
 ## Dashboard and webhooks
 
 Sign in with GitHub (through Supabase Auth), or with an email link. Per project:
+
 - **Videos:** browser upload, preview, and a live processing timeline from the audit trail.
 - **Jobs:** state, attempts, progress and errors.
 - **Analytics:** time to first frame p50/p95, rebuffers, completion.
@@ -159,6 +163,7 @@ retries failures. Verify them with `verifyWebhook()` from `@reelplane/sdk-core`.
 ## Self-hosting
 
 Everything is a config change; no code changes.
+
 - **Postgres:** any (tested on 18; Supabase works).
 - **Storage:** any S3-compatible service (RustFS locally; Supabase Storage, Backblaze B2,
   Cloudflare R2, AWS S3).

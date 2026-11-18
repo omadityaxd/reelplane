@@ -7,6 +7,7 @@ Please report vulnerabilities privately, not in a public issue or pull request:
 (GitHub's private vulnerability reporting; only the maintainer sees it).
 
 Include what you can of:
+
 - the affected part (web app and API, `@reelplane/sdk-core`, `@reelplane/sdk-react`, the worker);
 - the steps or a request that reproduces it, and what an attacker gains;
 - the version or commit you tested.

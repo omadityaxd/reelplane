@@ -3,6 +3,7 @@
 Everything to do by hand to put Reelplane online, in order. About 1–2 hours.
 
 **How it works:**
+
 - Values go into `.env.production` at the repo root. Copy it from `.env.production.example`;
   it's gitignored. The variables marked _[Vercel]_ there also go into Vercel.
 - Each step ends with a **Check**. Don't move on until it passes.
@@ -10,6 +11,7 @@ Everything to do by hand to put Reelplane online, in order. About 1–2 hours.
   [DEPLOY.md](DEPLOY.md).
 
 **Before you start:**
+
 - [ ] Docker Desktop is running.
 - [ ] `pnpm check` passes.
 - [ ] `cp .env.production.example .env.production`, if you don't have one yet.
@@ -28,8 +30,8 @@ You already have the project. Supabase dashboard → your project → **Project 
 Never copy the `service_role` / secret key into Vercel or any `NEXT_PUBLIC_` variable.
 
 - [ ] **Check:** open `https://<ref>.supabase.co/auth/v1/settings?apikey=<anon key>` in a
-  browser. It answers with JSON settings, including an `external` list of sign-in
-  providers.
+      browser. It answers with JSON settings, including an `external` list of sign-in
+      providers.
 
 ## 2. Database connection strings
 
@@ -49,8 +51,8 @@ pnpm prod:migrate
 
 - [ ] **Check:** it prints `Applied: 0001_init, … 0011_claim_counter`.
 - [ ] **Check:** Dashboard → **SQL Editor** →
-  `select rolname from pg_roles where rolname like 'reelplane%';` returns `reelplane_api`
-  and `reelplane_worker`.
+      `select rolname from pg_roles where rolname like 'reelplane%';` returns `reelplane_api`
+      and `reelplane_worker`.
 
 **Encryption needs nothing from you.** Paste the strings as Supabase shows them, without
 `?sslmode=…`. The app and the worker connect to any non-local database only over TLS, and check
@@ -85,8 +87,8 @@ pnpm prod:init-storage
 ```
 
 - [ ] **Check:** it prints `Found bucket "reelplane" on supabase`. Two lines saying CORS rules
-  and a public-read policy couldn't be set are **expected**: Supabase manages both itself
-  (CORS internally, public reads through the bucket's Public switch).
+      and a public-read policy couldn't be set are **expected**: Supabase manages both itself
+      (CORS internally, public reads through the bucket's Public switch).
 
 ## 4. Generate the two secrets
 
@@ -121,7 +123,7 @@ invalidates all of them.
    READMEs.
 
 - [ ] **Check:** the repo page shows the commits, and `.env`, `.env.production` and
-  `apps/web/.env.local` are **not** in it.
+      `apps/web/.env.local` are **not** in it.
 
 ## 6. GitHub sign-in (OAuth app)
 
@@ -147,7 +149,7 @@ is refused on Vercel and against a non-local database. `e2e/github-signin.spec.t
 flow.
 
 - [ ] **Check:** reload `https://<ref>.supabase.co/auth/v1/settings?apikey=<anon key>`. It now
-  shows `"github": true` under `external`. The sign-in itself is checked in step 9.
+      shows `"github": true` under `external`. The sign-in itself is checked in step 9.
 
 ## 7. Vercel project
 
@@ -187,7 +189,7 @@ flow.
 
 - [ ] **Check:** `https://<your-app>.vercel.app/v1/health` answers `{"status":"ok"}`.
 - [ ] **Check:** `https://<your-app>.vercel.app/` shows "The demo feed is not set up yet". The
-  demo key comes in step 11.
+      demo key comes in step 11.
 
 ## 8. Site URL in Vercel
 
@@ -201,6 +203,7 @@ flow.
 ## 9. Supabase URL settings
 
 Supabase → **Authentication → URL Configuration**:
+
 - **Site URL:** `https://<your-app>.vercel.app`
 - **Redirect URLs:** add `https://<your-app>.vercel.app/auth/callback`. Keep
   `http://localhost:3000/**` for local development.
@@ -214,7 +217,7 @@ Supabase → **Authentication → Emails → Magic Link**: the link in the templ
 so a link requested on one device also opens on another.
 
 - [ ] **Check:** `https://<your-app>.vercel.app/login` → **Sign in with GitHub** → GitHub asks
-  to authorize "Reelplane" → you land on `/dashboard`, showing your GitHub email.
+      to authorize "Reelplane" → you land on `/dashboard`, showing your GitHub email.
 - [ ] **Check:** sign out, request an email link, open it on your phone → it signs you in.
 
 ## 10. Your user id (for seeding)
@@ -247,9 +250,9 @@ NEXT_PUBLIC_DEMO_PUBLISHABLE_KEY=rp_pk_…
 Add it to Vercel (Production) and to `.env.production`, then **Redeploy**.
 
 - [ ] **Check:** `https://<your-app>.vercel.app/` plays the feed, on your laptop and on your
-  phone over mobile data.
+      phone over mobile data.
 - [ ] **Check:** `/dashboard` lists "Reelplane demo", and its **Videos** tab shows every clip as
-  **ready**.
+      **ready**.
 
 ## 12. Daily cleanup cron
 
@@ -257,7 +260,7 @@ Vercel → **Settings → Cron Jobs** should list `/api/cron/cleanup`, daily at 
 `apps/web/vercel.json`.
 
 - [ ] **Check:** click **Run** next to it → its log shows a 200 and a JSON report. Without
-  `CRON_SECRET` it answers 503; with a wrong one, 401.
+      `CRON_SECRET` it answers 503; with a wrong one, 401.
 
 ## 13. Publish the SDK to npm
 
@@ -279,6 +282,7 @@ Vercel → **Settings → Cron Jobs** should list `/api/cron/cleanup`, daily at 
 ## 14. Hand over for the smoke test
 
 Tell me the production URL. I check:
+
 - the feed plays;
 - the API answers with the right CORS and rate-limit headers;
 - GitHub and email sign-in work;
