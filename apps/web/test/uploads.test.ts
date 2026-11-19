@@ -13,6 +13,7 @@ import {
   newProject,
   ORIGIN,
   PEPPER,
+  sourceKeyOf,
   storagesUnderTest,
   TEST_LIMITS,
   testPool,
@@ -89,7 +90,7 @@ describe.each(storagesUnderTest())("upload path ($name storage)", ({ storage, tr
     expect(result.status).toBe("queued");
     expect(progress.at(-1)).toBe(1);
     expect(progress).toEqual([...progress].sort((a, b) => a - b)); // never goes backwards
-    expect((await storage.headObject(`originals/${project.id}/${result.id}/source`))?.size).toBe(
+    expect((await storage.headObject(await sourceKeyOf(pool, project.id, result.id)))?.size).toBe(
       bytes.byteLength,
     );
     expect(await jobCount(pool, project.id, result.id)).toBe(1);
@@ -196,7 +197,7 @@ describe.each(storagesUnderTest())("upload path ($name storage)", ({ storage, tr
       data: { status: "failed", failureReason: "unsupported_file_type" },
     });
     expect(
-      await storage.headObject(`originals/${project.id}/${session.upload.videoId}/source`),
+      await storage.headObject(await sourceKeyOf(pool, project.id, session.upload.videoId)),
     ).toBeNull();
     expect(await jobCount(pool, project.id, session.upload.videoId)).toBe(0);
     // A retried complete must not report the rejected upload as a success. (Its upload token

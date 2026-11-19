@@ -79,6 +79,9 @@ func HLSArgs(plan EncodePlan) []string {
 	args = append(args,
 		"-i", plan.Input,
 		"-filter_complex", filter.String(),
+		// Publish pictures and sound, nothing else from the upload: phone videos carry GPS
+		// location, device model and dates in their metadata, which FFmpeg copies by default.
+		"-map_metadata", "-1", "-map_chapters", "-1",
 	)
 	var streamMap []string
 	for i, rung := range plan.Rungs {

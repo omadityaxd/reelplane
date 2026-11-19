@@ -58,6 +58,13 @@ below, with its impact and the fix I'd make.
   key, but other runtimes needn't.
 
 **Fixed before launch** (2026-11-17, security), each with tests:
+- **Published renditions kept the upload's metadata,** including a phone's GPS location and
+  model (FFmpeg copies container metadata by default). The worker now drops all source
+  metadata and chapters (2026-11-19). The 8 showcase clips carried none.
+- **Original uploads could be downloaded by anyone.** The bucket is public so the feed plays
+  from it, and `originals/<project>/<video>/source` was built from ids the feed returns. New
+  originals go under a random 128-bit folder no public API returns (2026-11-19). The existing
+  originals are the 8 CC BY showcase clips, public anyway.
 
 - **The production worker ran FFmpeg directly on the laptop.** `pnpm prod:worker` now runs the
   worker only in its Docker container: non-root, no Linux capabilities, no privilege escalation,

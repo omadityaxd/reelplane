@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   endUpload,
   getVideo,
@@ -52,6 +52,16 @@ function validateLimits(input: CreateUploadInput, deps: AppDeps): void {
 }
 
 /**
+ * Where an upload is stored. The bucket is public (the feed plays straight from it) and the
+ * project and video ids are public too, so the original gets a random 128-bit folder that no
+ * public API returns: nobody can fetch someone else's full-quality upload, with its metadata.
+ * A deleted video's `originals/<project>/<video>/` prefix still covers it.
+ */
+export function originalKey(projectId: string, videoId: string): string {
+  return `originals/${projectId}/${videoId}/${randomBytes(16).toString("hex")}/source`;
+}
+
+/**
  * Starts a direct-to-storage upload: creates the multipart upload, the `uploading` video row
  * and a one-video upload token. No video bytes ever pass through this server.
  */
@@ -62,7 +72,7 @@ export async function createUploadSession(
 ): Promise<UploadSession> {
   validateLimits(input, deps);
   const videoId = randomUUID();
-  const sourceKey = `originals/${projectId}/${videoId}/source`;
+  const sourceKey = originalKey(projectId, videoId);
   const token = generateUploadToken();
   const uploadId = await deps.storage.createMultipartUpload(sourceKey, input.contentType);
 

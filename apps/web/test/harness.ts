@@ -137,6 +137,19 @@ export async function jobCount(pool: Pool, projectId: string, videoId: string): 
   });
 }
 
+/** Where a video's original upload is stored (a random key; see originalKey). */
+export async function sourceKeyOf(pool: Pool, projectId: string, videoId: string): Promise<string> {
+  return withTenant(pool, { projectId }, async (client) => {
+    const { rows } = await client.query<{ source_key: string }>(
+      "select source_key from reelplane.videos where id = $1",
+      [videoId],
+    );
+    const key = rows[0]?.source_key;
+    if (!key) throw new Error(`no video ${videoId}`);
+    return key;
+  });
+}
+
 export async function eventTypes(
   pool: Pool,
   projectId: string,

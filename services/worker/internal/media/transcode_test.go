@@ -238,3 +238,73 @@ func TestHDRSourceIsToneMappedToSDR(t *testing.T) {
 		t.Error("stills must still be generated for HDR sources")
 	}
 }
+
+// A phone video's location, device and other container metadata must not reach the published
+// renditions, which anyone watching the feed downloads.
+func TestTranscodeDropsSourceMetadata(t *testing.T) {
+	requireFFmpeg(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source.mov")
+	gen := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-nostdin", "-y", "-v", "error",
+		"-f", "lavfi", "-i", "testsrc2=size=360x640:rate=25:duration=2",
+		"-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+		"-metadata", "location=+48.8584+002.2945/",
+		"-metadata", "com.apple.quicktime.location.ISO6709=+48.8584+002.2945+035.000/",
+		"-metadata", "com.apple.quicktime.model=iPhone 15",
+		"-metadata:s:a:0", "handler_name=Core Media Audio",
+		"-movflags", "use_metadata_tags", src)
+	if out, err := gen.CombinedOutput(); err != nil {
+		t.Fatalf("generate clip: %v: %s", err, out)
+	}
+	if tags := allTags(t, src); !strings.Contains(tags, "48.8584") {
+		t.Fatalf("the fixture has no location to strip: %s", tags)
+	}
+	probe, err := ProbeFile(ctx, "ffprobe", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rate := OutputRate(probe)
+	rungs := PlanLadder(probe.Width, probe.Height, rate.FPS)
+	plan := EncodePlan{Input: src, OutDir: out, Rungs: rungs, Rate: rate, HasAudio: probe.HasAudio, Preset: "ultrafast"}
+	if err := Transcode(ctx, "ffmpeg", plan, probe.Duration, func(float64) {}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rung := range rungs {
+		playlist, err := os.ReadFile(filepath.Join(out, rung.Name, "index.m3u8"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, after, found := strings.Cut(string(playlist), "#EXT-X-MAP:URI=\"")
+		init, _, _ := strings.Cut(after, "\"")
+		if !found || init == "" {
+			t.Fatalf("%s: no init segment in the playlist", rung.Name)
+		}
+		tags := allTags(t, filepath.Join(out, rung.Name, init))
+		for _, leaked := range []string{"48.8584", "location", "iPhone", "com.apple", "Core Media"} {
+			if strings.Contains(tags, leaked) {
+				t.Errorf("%s/%s still carries %q: %s", rung.Name, init, leaked, tags)
+			}
+		}
+	}
+}
+
+// allTags is every container and stream tag ffprobe sees in a file.
+func allTags(t *testing.T, path string) string {
+	t.Helper()
+	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format_tags:stream_tags",
+		"-of", "json", path)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("ffprobe %s: %v: %s", path, err, stderr.String())
+	}
+	return string(out)
+}
