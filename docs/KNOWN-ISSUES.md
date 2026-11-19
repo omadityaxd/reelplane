@@ -58,6 +58,7 @@ below, with its impact and the fix I'd make.
   key, but other runtimes needn't.
 
 **Fixed before launch** (2026-11-17, security), each with tests:
+
 - **Published renditions kept the upload's metadata,** including a phone's GPS location and
   model (FFmpeg copies container metadata by default). The worker now drops all source
   metadata and chapters (2026-11-19). The 8 showcase clips carried none.
