@@ -313,26 +313,41 @@ func (q *Queue) Complete(ctx context.Context, job *Job, result Result) (publishe
 			 where id = $1`, job.ID, metrics); err != nil {
 			return fmt.Errorf("mark job succeeded: %w", err)
 		}
-		tag, err := tx.Exec(ctx, `
+		var showcase bool
+		err := tx.QueryRow(ctx, `
 			update reelplane.videos
 			   set status = 'ready', duration_ms = $2, width = $3, height = $4, playback_prefix = $5,
 			       master_playlist_key = $6, poster_key = $7, thumbnail_keys = $8, placeholder = $9,
 			       failure_reason = null, ready_at = now()
-			 where id = $1 and status = 'processing'`,
+			 where id = $1 and status = 'processing'
+			returning is_showcase`,
 			job.VideoID, result.DurationMs, result.Width, result.Height, result.Prefix,
-			result.MasterKey, result.PosterKey, thumbnails, result.Placeholder)
-		if err != nil {
-			return fmt.Errorf("mark video ready: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
+			result.MasterKey, result.PosterKey, thumbnails, result.Placeholder).Scan(&showcase)
+		if errors.Is(err, pgx.ErrNoRows) {
 			// Deleted mid-processing: the job is done, and its outputs are garbage.
 			return q.recordGarbage(ctx, tx, result.Prefix, "video deleted during processing")
 		}
+		if err != nil {
+			return fmt.Errorf("mark video ready: %w", err)
+		}
 		published = true
 		// The video.ready webhook is queued by the database (trigger videos_webhooks).
-		return replaceRenditions(ctx, tx, job, result.Renditions)
+		if err := replaceRenditions(ctx, tx, job, result.Renditions); err != nil {
+			return err
+		}
+		if showcase {
+			return nil // kept, so `worker reposter` can rebuild its stills (docs/ARCHITECTURE.md)
+		}
+		return q.recordGarbage(ctx, tx, OriginalPrefix(job), "original no longer needed: published")
 	})
 	return published, err
+}
+
+// OriginalPrefix is the folder holding a video's uploaded original. Once the video is
+// published, a non-showcase original is queued for deletion in the publishing transaction: it
+// is the only copy of the upload's location and device metadata, and it costs storage.
+func OriginalPrefix(job *Job) string {
+	return fmt.Sprintf("originals/%s/%s/", job.ProjectID, job.VideoID)
 }
 
 func replaceRenditions(ctx context.Context, tx pgx.Tx, job *Job, renditions []Rendition) error {

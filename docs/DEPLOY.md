@@ -23,9 +23,12 @@ need no card, but players can't read a private bucket directly.
 **What A means in practice:**
 
 - **Uploads go up to 50 MB** (a 60 s phone video is usually 30–80 MB, so some won't fit).
-- **The bucket is public as a whole,** originals included. They sit at
-  `originals/<project uuid>/<video uuid>/source`, a path the API never reveals and nobody can
-  guess.
+- **The bucket is public as a whole,** originals included. An original sits at
+  `originals/<project uuid>/<video uuid>/<32 random hex>/source`. The ids are public (the feed
+  returns them), so the random folder, which no API returns, is what keeps it from being
+  fetched. Once a video is published its original is deleted, except for showcase videos
+  (see [ARCHITECTURE.md](ARCHITECTURE.md#originals-are-deleted-once-published-except-showcase-videos)).
+  Uploads made before 2026-11-19 have no random folder.
 - **5 GB of egress is roughly 1,000–2,000 demo views a month.** A view plus preloads is about
   3–5 MB at 720p.
 

@@ -66,8 +66,10 @@ func TestReleaseNeverRecyclesAPublishedPrefix(t *testing.T) {
 			t.Fatalf("the sweeper deleted the published prefix %s", prefix)
 		}
 	}
-	if len(deleted) != 1 || deleted[0] != queue.AttemptPrefix(first)+"/" {
-		t.Errorf("swept %v, want only the released attempt's prefix", deleted)
+	// The released attempt's outputs, and the original now that the video is published.
+	want := map[string]bool{queue.AttemptPrefix(first) + "/": true, queue.OriginalPrefix(second): true}
+	if len(deleted) != len(want) || !want[deleted[0]] || !want[deleted[1]] {
+		t.Errorf("swept %v, want only the released attempt's prefix and the original", deleted)
 	}
 	status := testdb.Scalar[string](t, db, `select status from reelplane.videos where id = $1`, seed.VideoID)
 	if status != "ready" {

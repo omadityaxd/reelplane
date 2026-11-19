@@ -1,5 +1,5 @@
-// Package reposter regenerates the posters (and inline placeholders) of published videos from
-// their kept originals, with the worker's current poster-frame selection, without re-transcoding.
+// Package reposter regenerates the posters (and inline placeholders) of published showcase videos
+// from their kept originals, with the worker's current poster-frame selection, without re-transcoding.
 //
 // Published files are cached forever (storage.CacheControl), so a new poster goes under a new
 // key next to the old one (poster-<ms>.jpg, named after the chosen frame), the video row is
@@ -41,7 +41,8 @@ type video struct {
 	sizeBytes                int64
 }
 
-// Run regenerates the poster of every ready video with a poster. A video that fails is
+// Run regenerates the poster of every ready showcase video with a poster (other videos' originals
+// are deleted once published, see queue.OriginalPrefix). A video that fails is
 // reported and skipped; the run returns the first such error after finishing the rest.
 func Run(ctx context.Context, pool *pgxpool.Pool, store storage.Store, opts Options) ([]Result, error) {
 	videos, err := readyVideos(ctx, pool)
@@ -72,7 +73,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, store storage.Store, opts Opti
 func readyVideos(ctx context.Context, pool *pgxpool.Pool) ([]video, error) {
 	rows, err := pool.Query(ctx, `
 		select id, source_key, poster_key, size_bytes from reelplane.videos
-		 where status = 'ready' and poster_key is not null
+		 where status = 'ready' and poster_key is not null and is_showcase
 		 order by ready_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list ready videos: %w", err)

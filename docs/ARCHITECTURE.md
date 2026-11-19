@@ -74,6 +74,28 @@ newest phase first. Numbers come from [BENCHMARKS.md](BENCHMARKS.md).
   the worker is a deploy, not a code change: it's one Docker image configured by environment
   variables. Measured on 2 vCPUs: 1.38× realtime.
 
+### Originals are deleted once published, except showcase videos
+
+- **How:** the transaction that publishes a video (`Complete`) also queues its
+  `originals/<project>/<video>/` folder in `storage_garbage`, and the sweeper deletes it after
+  the usual grace delay. Showcase videos are skipped: their originals are kept.
+- **Why:**
+  - **Privacy:** the original is the only file still holding the upload's GPS location and
+    device metadata (renditions drop it). The bucket is public; the original sits under a
+    random path no API returns, but deleting it is better than hiding it.
+  - **Storage:** an original is up to 50 MB, about as much as all its renditions, on a 1 GB
+    free plan.
+- **Why showcase is different:** those are the 8 licensed demo clips, which carry no personal
+  metadata and are public anyway. Their originals let `worker reposter` rebuild their posters
+  from a better frame without re-uploading, which is how the black Sintel poster was fixed.
+- **Trade-off:** an ordinary upload can't be reprocessed: a better poster picker, a new ladder
+  or codec applies only to new uploads, or to a video uploaded again.
+- **Safety:** the original is queued only in the publish transaction, after the renditions and
+  poster are uploaded, and only if that transaction commits. A failed, reaped, released or
+  dead-lettered attempt never queues it, so every retry still finds it. The seed marks a video
+  as showcase before its upload completes, so its job never runs without the flag. Detail:
+  [Originals after publishing](#originals-after-publishing).
+
 ### Isolation by Postgres row-level security
 
 Every request runs as a restricted role, scoped to one project, with RLS on every table. A
@@ -455,6 +477,23 @@ lease), and failed deletions are retried with backoff. The first chaos run used 
 cleanup by the winning worker. It left **46 orphaned objects**, because the winner itself was
 sometimes killed between commit and cleanup. With the garbage table, every run since has
 reported **0**.
+
+### Originals after publishing
+
+The uploaded original is the job's input, so it must outlive every attempt until one publishes.
+`Complete` therefore queues `originals/<project>/<video>/` as garbage in the same fenced
+transaction that marks the video ready (the `UPDATE … RETURNING is_showcase` tells it whether to
+keep it). The other ways out of a running job (`Fail`, `ReapExpired`, `Release`, dead letters)
+queue only the attempt's own prefix. If the publish is fenced off or fails part-way, nothing
+commits, and the original is still there for the next attempt. The 10-minute grace delay also
+covers the one reader left: a zombie attempt still downloading the original can't publish anyway.
+
+Showcase originals are kept for `worker reposter`, which only touches showcase videos. A deleted
+video's whole originals folder is still queued by `delete_video` and the cleanup job, so
+`on conflict do nothing` makes the two paths harmless together. Tests:
+`services/worker/internal/queue/originals_test.go` (published, showcase, failed, reaped,
+fenced, rolled back, dead-lettered), and the worker's end-to-end test checks the original is
+swept from storage.
 
 ### Retries, dead letters, shutdown
 

@@ -99,7 +99,9 @@ func TestWorkerTranscodesAndPublishesAJob(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w := worker.New(newQueue(db, "e2e", 10*time.Second), realPipeline(store), store, fastOpts, quiet)
+	q := newQueue(db, "e2e", 10*time.Second)
+	q.SetGarbageDelay(0) // sweep the published video's original right away
+	w := worker.New(q, realPipeline(store), store, fastOpts, quiet)
 	runUntil(t, w, 90*time.Second, func() bool {
 		return jobState(t, db, seed.JobID) == "succeeded" && testdb.Scalar[int](t, db, `select count(*)::int from reelplane.storage_garbage`) == 0
 	})
@@ -119,6 +121,10 @@ func TestWorkerTranscodesAndPublishesAJob(t *testing.T) {
 	}
 	if !hasMaster || hasStale {
 		t.Fatalf("master uploaded=%v, stale attempt still present=%v", hasMaster, hasStale)
+	}
+	// Published, so the original (not a showcase video) has been swept.
+	if originals, _ := store.List(context.Background(), "originals/"); len(originals) != 0 {
+		t.Fatalf("original still stored after publishing: %v", originals)
 	}
 }
 

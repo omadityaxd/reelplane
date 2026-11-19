@@ -229,10 +229,12 @@ async function upload(
     if (!response.ok)
       throw new Error(`part ${part.partNumber} upload failed: HTTP ${response.status}`);
   }
-  await completeUploadSession(deps, projectId, videoId, {});
+  // Marked before completing, so it's a showcase video before its job exists: the worker keeps
+  // a showcase original when it publishes, and deletes any other (docs/ARCHITECTURE.md).
   await withTenant(deps.pool, { projectId }, (client) =>
     client.query("update reelplane.videos set is_showcase = true where id = $1", [videoId]),
   );
+  await completeUploadSession(deps, projectId, videoId, {});
   return videoId;
 }
 

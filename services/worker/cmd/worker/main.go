@@ -1,8 +1,8 @@
 // Command worker is the Reelplane transcoding worker: it claims jobs from Postgres, runs
 // FFmpeg and publishes HLS to object storage. Configuration: see internal/config.
 //
-// `worker reposter [-dry-run]` instead regenerates the posters of published videos from their
-// originals (internal/reposter), without re-transcoding, and exits.
+// `worker reposter [-dry-run]` instead regenerates the posters of published showcase videos
+// from their kept originals (internal/reposter), without re-transcoding, and exits.
 package main
 
 import (

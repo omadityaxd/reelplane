@@ -57,8 +57,18 @@ func TestRunRegeneratesPostersWithoutRetranscoding(t *testing.T) {
 	}
 	for _, status := range []string{"processing", "ready"} {
 		if _, err := db.Owner.Exec(ctx, `update reelplane.videos set status = $2, size_bytes = $3,
-			poster_key = $4, placeholder = 'data:old', master_playlist_key = $5 where id = $1`,
+			poster_key = $4, placeholder = 'data:old', master_playlist_key = $5, is_showcase = true where id = $1`,
 			seeded.VideoID, status, len(raw), oldPoster, attempt+"/master.m3u8"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A published upload that isn't a showcase video has no original any more: it is skipped
+	// (the run would otherwise fail downloading it, and report two results).
+	other := db.SeedJob(t, seeded.ProjectID, 3)
+	for _, status := range []string{"processing", "ready"} {
+		if _, err := db.Owner.Exec(ctx, `update reelplane.videos set status = $2,
+			poster_key = 'media/x/y/z/poster.jpg' where id = $1`, other.VideoID, status); err != nil {
 			t.Fatal(err)
 		}
 	}
